@@ -1,0 +1,114 @@
+// This schema documents the intended production data model (Appendix A of the proposal).
+// Deploy target: PostgreSQL via Prisma (Render/Railway). Run `npx prisma migrate dev` once
+// you have full internet access (this schema cannot be migrated inside the build sandbox
+// used to generate this project — see server/README.md for why, and what stands in for it
+// there: an equivalent schema implemented with Node's built-in SQLite for local demo/testing).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  volunteer
+  coordinator
+}
+
+enum CommitmentType {
+  ad_hoc
+  recurring
+  mentoring
+}
+
+enum OpportunityStatus {
+  open
+  closed
+  cancelled
+}
+
+enum ApplicationStatus {
+  pending
+  approved
+  declined
+}
+
+model User {
+  id             String   @id @default(uuid())
+  name           String
+  email          String   @unique
+  passwordHash   String
+  role           Role
+  createdAt      DateTime @default(now())
+
+  profile        VolunteerProfile?
+  opportunities  Opportunity[]      @relation("CreatedOpportunities")
+  applications   Application[]      @relation("VolunteerApplications")
+  reviewed       Application[]      @relation("ReviewedApplications")
+  attendances    Attendance[]       @relation("VolunteerAttendance")
+  recorded       Attendance[]       @relation("RecordedAttendance")
+}
+
+model VolunteerProfile {
+  id                    String  @id @default(uuid())
+  userId                String  @unique
+  user                  User    @relation(fields: [userId], references: [id])
+  skills                String?
+  interests             String?
+  availability          String?
+  preferredLocations    String?
+  commitmentPreference  CommitmentType?
+}
+
+model Opportunity {
+  id              String            @id @default(uuid())
+  title           String
+  description     String
+  category        String
+  commitmentType  CommitmentType
+  location        String
+  startDatetime   DateTime
+  endDatetime     DateTime
+  capacity        Int
+  requiresBriefing Boolean          @default(false)
+  status          OpportunityStatus @default(open)
+  createdBy       String
+  creator         User              @relation("CreatedOpportunities", fields: [createdBy], references: [id])
+
+  applications    Application[]
+  attendances     Attendance[]
+}
+
+model Application {
+  id             String            @id @default(uuid())
+  opportunityId  String
+  opportunity    Opportunity       @relation(fields: [opportunityId], references: [id])
+  volunteerId    String
+  volunteer      User              @relation("VolunteerApplications", fields: [volunteerId], references: [id])
+  message        String?
+  status         ApplicationStatus @default(pending)
+  reviewedBy     String?
+  reviewer       User?             @relation("ReviewedApplications", fields: [reviewedBy], references: [id])
+  reviewedAt     DateTime?
+  createdAt      DateTime          @default(now())
+
+  @@unique([opportunityId, volunteerId])
+}
+
+model Attendance {
+  id             String      @id @default(uuid())
+  opportunityId  String
+  opportunity    Opportunity @relation(fields: [opportunityId], references: [id])
+  volunteerId    String
+  volunteer      User        @relation("VolunteerAttendance", fields: [volunteerId], references: [id])
+  attended       Boolean     @default(true)
+  hoursCompleted Float       @default(0)
+  recordedBy     String
+  recorder       User        @relation("RecordedAttendance", fields: [recordedBy], references: [id])
+  recordedAt     DateTime    @default(now())
+
+  @@unique([opportunityId, volunteerId])
+}

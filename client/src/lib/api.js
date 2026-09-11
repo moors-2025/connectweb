@@ -1,0 +1,51 @@
+// In dev, Vite proxies "/api" to localhost:4000 (see vite.config.js).
+// In production the client and API are on different domains (Vercel + Render),
+// so VITE_API_BASE_URL must be set at build time to the deployed API's URL,
+// e.g. https://pertapis-volunteer-connect-api.onrender.com/api
+const BASE = import.meta.env.VITE_API_BASE_URL || "/api";
+
+async function request(path, { method = "GET", body, token } = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Request failed (${res.status})`);
+  }
+  return data;
+}
+
+export const api = {
+  register: (payload) => request("/auth/register", { method: "POST", body: payload }),
+  login: (payload) => request("/auth/login", { method: "POST", body: payload }),
+
+  listOpportunities: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/opportunities${qs ? `?${qs}` : ""}`);
+  },
+  getOpportunity: (id) => request(`/opportunities/${id}`),
+  createOpportunity: (payload, token) => request("/opportunities", { method: "POST", body: payload, token }),
+  updateOpportunity: (id, payload, token) => request(`/opportunities/${id}`, { method: "PATCH", body: payload, token }),
+
+  apply: (opportunityId, message, token) =>
+    request(`/opportunities/${opportunityId}/apply`, { method: "POST", body: { message }, token }),
+  listApplicationsFor: (opportunityId, token) => request(`/opportunities/${opportunityId}/applications`, { token }),
+  reviewApplication: (applicationId, status, token) =>
+    request(`/applications/${applicationId}`, { method: "PATCH", body: { status }, token }),
+
+  recordAttendance: (payload, token) => request("/attendance", { method: "POST", body: payload, token }),
+
+  myProfile: (token) => request("/volunteers/me/profile", { token }),
+  updateMyProfile: (payload, token) => request("/volunteers/me/profile", { method: "PATCH", body: payload, token }),
+  mySchedule: (token) => request("/volunteers/me/schedule", { token }),
+  myApplications: (token) => request("/volunteers/me/applications", { token }),
+  myHours: (token) => request("/volunteers/me/hours", { token }),
+
+  volunteerHoursReport: (token) => request("/reports/volunteer-hours", { token }),
+};
