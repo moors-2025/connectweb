@@ -55,7 +55,7 @@ export default function OpportunityDetail() {
     }
   }
 
-  if (loading) {
+  if (loading && !opportunity) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-12">
         <Skeleton rows={1} />

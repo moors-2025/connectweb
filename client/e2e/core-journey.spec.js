@@ -107,7 +107,14 @@ test.describe("Core journey: register, apply, approve, attend, hours", () => {
     await coordPage.getByRole("button", { name: "Approve" }).click();
     await expect(coordPage.getByPlaceholder("hrs")).toBeVisible();
     await coordPage.getByPlaceholder("hrs").fill("3");
-    await coordPage.getByRole("button", { name: "Record attendance" }).click();
+    const [attendanceResponse] = await Promise.all([
+      coordPage.waitForResponse((r) => r.url().includes("/api/attendance") && r.request().method() === "POST"),
+      coordPage.getByRole("button", { name: "Record attendance" }).click(),
+    ]);
+    // Fail loudly with the real server response if this isn't a 201, instead
+    // of a generic "text never appeared" timeout that gives no diagnostic
+    // information about why.
+    expect(attendanceResponse.status(), await attendanceResponse.text()).toBe(201);
     await expect(coordPage.getByText("Attendance recorded")).toBeVisible();
 
     await volPage.goto("/dashboard");
