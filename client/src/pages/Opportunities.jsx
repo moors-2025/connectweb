@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { useState } from "react";
+import { useOpportunities } from "../hooks/useOpportunities";
 import OpportunityCard from "../components/OpportunityCard";
+import Skeleton from "../components/Skeleton";
 
 const CATEGORIES = [
   "Youth Mentoring",
@@ -13,24 +14,8 @@ const CATEGORIES = [
 ];
 
 export default function Opportunities() {
-  const [opportunities, setOpportunities] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [filters, setFilters] = useState({ category: "", commitmentType: "", location: "" });
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    const cleanFilters = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
-    api
-      .listOpportunities(cleanFilters)
-      .then((data) => !cancelled && setOpportunities(data))
-      .catch((err) => !cancelled && setError(err.message))
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [filters]);
+  const { opportunities, loading, error } = useOpportunities(filters);
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-12">
@@ -70,15 +55,19 @@ export default function Opportunities() {
         />
       </div>
 
-      <div className="mt-8 space-y-4">
-        {loading && <p className="text-ink/60">Loading opportunities...</p>}
+      <div className="mt-8">
+        {loading && <Skeleton rows={3} />}
         {error && <p className="text-brick">{error}</p>}
         {!loading && !error && opportunities.length === 0 && (
           <p className="text-ink/60">No opportunities match those filters right now.</p>
         )}
-        {opportunities.map((o) => (
-          <OpportunityCard key={o.id} opportunity={o} />
-        ))}
+        {!loading && !error && (
+          <div className="space-y-4">
+            {opportunities.map((o) => (
+              <OpportunityCard key={o.id} opportunity={o} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

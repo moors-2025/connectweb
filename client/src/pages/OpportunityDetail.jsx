@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 import { api } from "../lib/api";
 import StatusBadge from "../components/StatusBadge";
+import Skeleton from "../components/Skeleton";
 
 export default function OpportunityDetail() {
   const { id } = useParams();
@@ -12,10 +13,11 @@ export default function OpportunityDetail() {
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [applying, setApplying] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const o = await api.getOpportunity(id);
+    const o = await api.getOpportunity(id, token);
     setOpportunity(o);
     if (user?.role === "coordinator" && o.createdBy === user.id) {
       const apps = await api.listApplicationsFor(id, token).catch(() => []);
@@ -31,29 +33,40 @@ export default function OpportunityDetail() {
   async function handleApply(e) {
     e.preventDefault();
     setStatus(null);
+    setApplying(true);
     try {
       await api.apply(id, message, token);
       setStatus({ type: "ok", text: "Application submitted — you'll see it under My Applications." });
       setMessage("");
+      load();
     } catch (err) {
       setStatus({ type: "error", text: err.message });
+    } finally {
+      setApplying(false);
     }
   }
 
-  async function handleReview(applicationId, decision) {
+  async function handleReview(applicationId, decision, briefingConfirmed) {
     try {
-      await api.reviewApplication(applicationId, decision, token);
+      await api.reviewApplication(applicationId, decision, token, briefingConfirmed);
       load();
     } catch (err) {
       setStatus({ type: "error", text: err.message });
     }
   }
 
-  if (loading) return <p className="mx-auto max-w-3xl px-6 py-12 text-ink/60">Loading...</p>;
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-12">
+        <Skeleton rows={1} />
+      </div>
+    );
+  }
   if (!opportunity) return <p className="mx-auto max-w-3xl px-6 py-12">Opportunity not found.</p>;
 
   const spotsLeft = opportunity.capacity - (opportunity.approvedCount || 0);
   const isOwner = user?.role === "coordinator" && opportunity.createdBy === user.id;
+  const myApplication = opportunity.myApplication;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
@@ -88,12 +101,22 @@ export default function OpportunityDetail() {
         </div>
       </dl>
 
-      {user?.role === "volunteer" && (
+      {/* Conditional CTA: an existing application replaces the apply form entirely,
+          rather than letting the volunteer submit a second one that the API would reject. */}
+      {user?.role === "volunteer" && myApplication && (
+        <div className="mt-8 flex items-center gap-3 rounded border border-line bg-surface p-4">
+          <span className="text-sm text-ink/70">You've already applied to this opportunity:</span>
+          <StatusBadge status={myApplication.status} />
+        </div>
+      )}
+
+      {user?.role === "volunteer" && !myApplication && (
         <form onSubmit={handleApply} className="mt-8 space-y-3">
-          <label className="block text-sm font-medium">
+          <label htmlFor="apply-message" className="block text-sm font-medium">
             A short note to the coordinator (optional)
           </label>
           <textarea
+            id="apply-message"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             rows={3}
@@ -102,10 +125,10 @@ export default function OpportunityDetail() {
           />
           <button
             type="submit"
-            disabled={spotsLeft <= 0 || opportunity.status !== "open"}
+            disabled={applying || spotsLeft <= 0 || opportunity.status !== "open"}
             className="rounded bg-forest px-5 py-2.5 font-medium text-white hover:bg-forest-dark disabled:opacity-50"
           >
-            Apply for this opportunity
+            {applying ? "Submitting..." : spotsLeft <= 0 ? "This opportunity is full" : "Apply for this opportunity"}
           </button>
         </form>
       )}
@@ -126,48 +149,74 @@ export default function OpportunityDetail() {
           ) : (
             <ul className="mt-4 space-y-3">
               {applications.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex items-center justify-between rounded border border-line p-4"
-                >
-                  <div>
-                    <p className="font-medium">{a.volunteerName}</p>
-                    <p className="text-sm text-ink/60">{a.volunteerEmail}</p>
-                    {a.message && <p className="mt-1 text-sm text-ink/80">"{a.message}"</p>}
+                <li key={a.id} className="rounded border border-line p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">{a.volunteerName}</p>
+                      <p className="text-sm text-ink/60">{a.volunteerEmail}</p>
+                      {a.message && <p className="mt-1 text-sm text-ink/80">"{a.message}"</p>}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <StatusBadge status={a.status} />
+                      {a.status === "approved" && (
+                        <AttendanceForm
+                          opportunityId={opportunity.id}
+                          volunteerId={a.volunteerId}
+                          token={token}
+                          onRecorded={load}
+                        />
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <StatusBadge status={a.status} />
-                    {a.status === "pending" && (
-                      <>
-                        <button
-                          onClick={() => handleReview(a.id, "approved")}
-                          className="rounded border border-forest px-3 py-1.5 text-sm text-forest-dark hover:bg-forest/10"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleReview(a.id, "declined")}
-                          className="rounded border border-brick px-3 py-1.5 text-sm text-brick hover:bg-brick/10"
-                        >
-                          Decline
-                        </button>
-                      </>
-                    )}
-                    {a.status === "approved" && (
-                      <AttendanceForm
-                        opportunityId={opportunity.id}
-                        volunteerId={a.volunteerId}
-                        token={token}
-                        onRecorded={load}
-                      />
-                    )}
-                  </div>
+
+                  {a.status === "pending" && (
+                    <ApprovalControls
+                      application={a}
+                      requiresBriefing={opportunity.requiresBriefing}
+                      onDecide={handleReview}
+                    />
+                  )}
                 </li>
               ))}
             </ul>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// BR4: mentoring/briefing-required opportunities need explicit confirmation
+// before an approval is allowed to go through — this mirrors the server-side rule.
+function ApprovalControls({ application, requiresBriefing, onDecide }) {
+  const [briefingConfirmed, setBriefingConfirmed] = useState(!!application.briefingConfirmed);
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-line pt-3">
+      {requiresBriefing && (
+        <label className="flex items-center gap-2 text-sm text-ink/80">
+          <input
+            type="checkbox"
+            checked={briefingConfirmed}
+            onChange={(e) => setBriefingConfirmed(e.target.checked)}
+          />
+          Briefing attended
+        </label>
+      )}
+      <button
+        onClick={() => onDecide(application.id, "approved", requiresBriefing ? briefingConfirmed : undefined)}
+        disabled={requiresBriefing && !briefingConfirmed}
+        title={requiresBriefing && !briefingConfirmed ? "Confirm the briefing before approving" : undefined}
+        className="rounded border border-forest px-3 py-1.5 text-sm text-forest-dark hover:bg-forest/10 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        Approve
+      </button>
+      <button
+        onClick={() => onDecide(application.id, "declined")}
+        className="rounded border border-brick px-3 py-1.5 text-sm text-brick hover:bg-brick/10"
+      >
+        Decline
+      </button>
     </div>
   );
 }

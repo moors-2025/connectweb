@@ -55,6 +55,7 @@ db.exec(`
     volunteerId TEXT NOT NULL REFERENCES users(id),
     message TEXT,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','declined')),
+    briefingConfirmed INTEGER NOT NULL DEFAULT 0,
     reviewedBy TEXT REFERENCES users(id),
     reviewedAt TEXT,
     createdAt TEXT NOT NULL DEFAULT (datetime('now')),

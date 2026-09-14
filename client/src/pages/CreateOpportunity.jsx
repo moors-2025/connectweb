@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 import { api } from "../lib/api";
 
 const CATEGORIES = [
@@ -59,8 +59,9 @@ export default function CreateOpportunity() {
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div>
-          <label className="block text-sm font-medium">Title</label>
+          <label htmlFor="opp-title" className="block text-sm font-medium">Title</label>
           <input
+            id="opp-title"
             required
             value={form.title}
             onChange={(e) => update("title", e.target.value)}
@@ -69,8 +70,9 @@ export default function CreateOpportunity() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium">Description</label>
+          <label htmlFor="opp-description" className="block text-sm font-medium">Description</label>
           <textarea
+            id="opp-description"
             required
             rows={3}
             value={form.description}
@@ -81,8 +83,9 @@ export default function CreateOpportunity() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium">Category</label>
+            <label htmlFor="opp-category" className="block text-sm font-medium">Category</label>
             <select
+              id="opp-category"
               value={form.category}
               onChange={(e) => update("category", e.target.value)}
               className="mt-1 w-full rounded border border-line bg-surface px-3 py-2"
@@ -95,8 +98,9 @@ export default function CreateOpportunity() {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium">Commitment type</label>
+            <label htmlFor="opp-commitment" className="block text-sm font-medium">Commitment type</label>
             <select
+              id="opp-commitment"
               value={form.commitmentType}
               onChange={(e) => update("commitmentType", e.target.value)}
               className="mt-1 w-full rounded border border-line bg-surface px-3 py-2"
@@ -109,8 +113,9 @@ export default function CreateOpportunity() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium">Location</label>
+          <label htmlFor="opp-location" className="block text-sm font-medium">Location</label>
           <input
+            id="opp-location"
             required
             value={form.location}
             onChange={(e) => update("location", e.target.value)}
@@ -120,8 +125,9 @@ export default function CreateOpportunity() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium">Starts</label>
+            <label htmlFor="opp-start" className="block text-sm font-medium">Starts</label>
             <input
+              id="opp-start"
               type="datetime-local"
               required
               value={form.startDatetime}
@@ -130,8 +136,9 @@ export default function CreateOpportunity() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium">Ends</label>
+            <label htmlFor="opp-end" className="block text-sm font-medium">Ends</label>
             <input
+              id="opp-end"
               type="datetime-local"
               required
               value={form.endDatetime}
@@ -143,8 +150,9 @@ export default function CreateOpportunity() {
 
         <div className="grid grid-cols-2 items-end gap-4">
           <div>
-            <label className="block text-sm font-medium">Capacity</label>
+            <label htmlFor="opp-capacity" className="block text-sm font-medium">Capacity</label>
             <input
+              id="opp-capacity"
               type="number"
               min="1"
               required

@@ -29,15 +29,19 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return request(`/opportunities${qs ? `?${qs}` : ""}`);
   },
-  getOpportunity: (id) => request(`/opportunities/${id}`),
+  getOpportunity: (id, token) => request(`/opportunities/${id}`, { token }),
   createOpportunity: (payload, token) => request("/opportunities", { method: "POST", body: payload, token }),
   updateOpportunity: (id, payload, token) => request(`/opportunities/${id}`, { method: "PATCH", body: payload, token }),
 
   apply: (opportunityId, message, token) =>
     request(`/opportunities/${opportunityId}/apply`, { method: "POST", body: { message }, token }),
   listApplicationsFor: (opportunityId, token) => request(`/opportunities/${opportunityId}/applications`, { token }),
-  reviewApplication: (applicationId, status, token) =>
-    request(`/applications/${applicationId}`, { method: "PATCH", body: { status }, token }),
+  reviewApplication: (applicationId, status, token, briefingConfirmed) =>
+    request(`/applications/${applicationId}`, {
+      method: "PATCH",
+      body: briefingConfirmed !== undefined ? { status, briefingConfirmed } : { status },
+      token,
+    }),
 
   recordAttendance: (payload, token) => request("/attendance", { method: "POST", body: payload, token }),
 
@@ -48,4 +52,24 @@ export const api = {
   myHours: (token) => request("/volunteers/me/hours", { token }),
 
   volunteerHoursReport: (token) => request("/reports/volunteer-hours", { token }),
+  opportunityBreakdown: (token) => request("/reports/opportunity-breakdown", { token }),
+  reportSummary: (token) => request("/reports/summary", { token }),
 };
+
+// CSV export needs the auth header, so it can't just be a plain <a href> link —
+// fetch it as a blob and trigger the browser download manually.
+export async function downloadVolunteerHoursCsv(token) {
+  const res = await fetch(`${BASE}/reports/volunteer-hours/export.csv`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Could not export the report");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "volunteer-hours-report.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

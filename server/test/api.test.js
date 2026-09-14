@@ -88,6 +88,111 @@ test("core journey: apply, approve, attend, hours update", async () => {
   assert.strictEqual(hoursRes.body.totalHours, 3);
 });
 
+test("registration rejects an invalid email and a short password", async () => {
+  const badEmail = await request(app)
+    .post("/api/auth/register")
+    .send({ name: "X", email: "not-an-email", password: "password123" });
+  assert.strictEqual(badEmail.status, 400);
+
+  const shortPassword = await request(app)
+    .post("/api/auth/register")
+    .send({ name: "X", email: "ok@test.com", password: "short" });
+  assert.strictEqual(shortPassword.status, 400);
+});
+
+test("coordinator can export the volunteer-hours report as CSV", async () => {
+  const volToken = await registerAndLogin("volunteer", "csvvol@test.com");
+  const coordToken = await registerAndLogin("coordinator", "csvcoord@test.com");
+
+  const oppRes = await request(app)
+    .post("/api/opportunities")
+    .set("Authorization", `Bearer ${coordToken}`)
+    .send({
+      title: "CSV Test", description: "d", category: "c",
+      commitmentType: "ad_hoc", location: "l",
+      startDatetime: "2026-10-01T10:00:00", endDatetime: "2026-10-01T12:00:00",
+      capacity: 1,
+    });
+  const oppId = oppRes.body.id;
+
+  const applyRes = await request(app)
+    .post(`/api/opportunities/${oppId}/apply`)
+    .set("Authorization", `Bearer ${volToken}`)
+    .send({});
+  await request(app)
+    .patch(`/api/applications/${applyRes.body.id}`)
+    .set("Authorization", `Bearer ${coordToken}`)
+    .send({ status: "approved" });
+
+  const meRes = await request(app).post("/api/auth/login").send({ email: "csvvol@test.com", password: "password123" });
+  await request(app)
+    .post("/api/attendance")
+    .set("Authorization", `Bearer ${coordToken}`)
+    .send({ opportunityId: oppId, volunteerId: meRes.body.user.id, attended: true, hoursCompleted: 4 });
+
+  const csvRes = await request(app)
+    .get("/api/reports/volunteer-hours/export.csv")
+    .set("Authorization", `Bearer ${coordToken}`);
+  assert.strictEqual(csvRes.status, 200);
+  assert.match(csvRes.headers["content-type"], /text\/csv/);
+  assert.match(csvRes.text, /Volunteer Name,Email,Activities Completed,Total Hours/);
+  assert.match(csvRes.text, /4/);
+});
+
+test("a volunteer cannot access the coordinator report endpoints", async () => {
+  const volToken = await registerAndLogin("volunteer", "noaccessvol@test.com");
+  const res = await request(app)
+    .get("/api/reports/volunteer-hours/export.csv")
+    .set("Authorization", `Bearer ${volToken}`);
+  assert.strictEqual(res.status, 403);
+});
+
+test("BR4: a briefing-required opportunity cannot be approved without confirmation", async () => {
+  const volToken = await registerAndLogin("volunteer", "br4vol@test.com");
+  const coordToken = await registerAndLogin("coordinator", "br4coord@test.com");
+
+  const oppRes = await request(app)
+    .post("/api/opportunities")
+    .set("Authorization", `Bearer ${coordToken}`)
+    .send({
+      title: "Mentoring Needs Briefing", description: "d", category: "c",
+      commitmentType: "mentoring", location: "l",
+      startDatetime: "2026-10-01T10:00:00", endDatetime: "2026-10-01T12:00:00",
+      capacity: 1, requiresBriefing: true,
+    });
+  const oppId = oppRes.body.id;
+
+  const applyRes = await request(app)
+    .post(`/api/opportunities/${oppId}/apply`)
+    .set("Authorization", `Bearer ${volToken}`)
+    .send({});
+  const appId = applyRes.body.id;
+
+  const blockedApproval = await request(app)
+    .patch(`/api/applications/${appId}`)
+    .set("Authorization", `Bearer ${coordToken}`)
+    .send({ status: "approved" });
+  assert.strictEqual(blockedApproval.status, 400);
+
+  const confirmedApproval = await request(app)
+    .patch(`/api/applications/${appId}`)
+    .set("Authorization", `Bearer ${coordToken}`)
+    .send({ status: "approved", briefingConfirmed: true });
+  assert.strictEqual(confirmedApproval.status, 200);
+  assert.strictEqual(confirmedApproval.body.status, "approved");
+  assert.strictEqual(confirmedApproval.body.briefingConfirmed, true);
+});
+
+test("Zod validation rejects a malformed opportunity payload", async () => {
+  const coordToken = await registerAndLogin("coordinator", "zodcoord@test.com");
+  const res = await request(app)
+    .post("/api/opportunities")
+    .set("Authorization", `Bearer ${coordToken}`)
+    .send({ title: "", commitmentType: "not_a_real_type", capacity: -5 });
+  assert.strictEqual(res.status, 400);
+  assert.ok(Array.isArray(res.body.details));
+});
+
 test("a volunteer cannot access coordinator-only routes", async () => {
   const volToken = await registerAndLogin("volunteer", "vol3@test.com");
   const res = await request(app)

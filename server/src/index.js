@@ -1,6 +1,8 @@
-require("dotenv").config();
+require("dotenv").config({ quiet: true }); // suppresses dotenv's promotional stdout banner
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 
 const authRoutes = require("./routes/auth");
 const opportunityRoutes = require("./routes/opportunities");
@@ -9,18 +11,66 @@ const attendanceRoutes = require("./routes/attendance");
 const volunteerRoutes = require("./routes/volunteers");
 const reportRoutes = require("./routes/reports");
 
+// If DATABASE_URL is set, use the PostgreSQL/Prisma route implementations
+// instead of the default SQLite ones (see Appendix L: Postgres Migration).
+// This is additive — nothing changes for the existing, verified SQLite path
+// unless DATABASE_URL is explicitly present.
+const usingPostgres = !!process.env.DATABASE_URL;
+const routes = usingPostgres
+  ? {
+      auth: require("./routes-prisma/auth"),
+      opportunities: require("./routes-prisma/opportunities"),
+      applications: require("./routes-prisma/applications"),
+      attendance: require("./routes-prisma/attendance"),
+      volunteers: require("./routes-prisma/volunteers"),
+      reports: require("./routes-prisma/reports"),
+    }
+  : {
+      auth: authRoutes,
+      opportunities: opportunityRoutes,
+      applications: applicationRoutes,
+      attendance: attendanceRoutes,
+      volunteers: volunteerRoutes,
+      reports: reportRoutes,
+    };
+
 const app = express();
-app.use(cors());
-app.use(express.json());
 
-app.get("/api/health", (req, res) => res.json({ ok: true }));
+// --- Security hardening (NFR: Security) ---
+app.use(helmet());
 
-app.use("/api/auth", authRoutes);
-app.use("/api/opportunities", opportunityRoutes);
-app.use("/api/applications", applicationRoutes);
-app.use("/api/attendance", attendanceRoutes);
-app.use("/api/volunteers", volunteerRoutes);
-app.use("/api/reports", reportRoutes);
+// Restrict CORS to a configured origin in production; permissive in dev so the
+// Vite dev server (a different port) still works without extra setup.
+const corsOrigin = process.env.CORS_ORIGIN;
+app.use(cors(corsOrigin ? { origin: corsOrigin } : {}));
+
+// Cap request body size to reduce large-payload DoS surface.
+app.use(express.json({ limit: "100kb" }));
+
+// Refuse to boot with the insecure default JWT secret outside development.
+if (process.env.NODE_ENV === "production" && (!process.env.JWT_SECRET || process.env.JWT_SECRET === "dev-secret-change-me")) {
+  console.error("Refusing to start: JWT_SECRET is missing or using the insecure default in production.");
+  process.exit(1);
+}
+
+// Rate-limit auth endpoints specifically: the highest-value target for brute-force/credential-stuffing.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many auth attempts, please try again later." },
+});
+app.use("/api/auth", authLimiter);
+
+app.get("/api/health", (req, res) => res.json({ ok: true, dataLayer: usingPostgres ? "postgres" : "sqlite" }));
+
+app.use("/api/auth", routes.auth);
+app.use("/api/opportunities", routes.opportunities);
+app.use("/api/applications", routes.applications);
+app.use("/api/attendance", routes.attendance);
+app.use("/api/volunteers", routes.volunteers);
+app.use("/api/reports", routes.reports);
 
 app.use((req, res) => res.status(404).json({ error: "Not found" }));
 // eslint-disable-next-line no-unused-vars

@@ -90,6 +90,7 @@ model Application {
   volunteer      User              @relation("VolunteerApplications", fields: [volunteerId], references: [id])
   message        String?
   status         ApplicationStatus @default(pending)
+  briefingConfirmed Boolean        @default(false)
   reviewedBy     String?
   reviewer       User?             @relation("ReviewedApplications", fields: [reviewedBy], references: [id])
   reviewedAt     DateTime?

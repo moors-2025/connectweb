@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 
 export default function Register() {
   const { register } = useAuth();
@@ -36,8 +36,9 @@ export default function Register() {
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div>
-          <label className="block text-sm font-medium">Name</label>
+          <label htmlFor="register-name" className="block text-sm font-medium">Name</label>
           <input
+            id="register-name"
             required
             value={form.name}
             onChange={(e) => update("name", e.target.value)}
@@ -45,8 +46,9 @@ export default function Register() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium">Email</label>
+          <label htmlFor="register-email" className="block text-sm font-medium">Email</label>
           <input
+            id="register-email"
             type="email"
             required
             value={form.email}
@@ -55,8 +57,9 @@ export default function Register() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium">Password</label>
+          <label htmlFor="register-password" className="block text-sm font-medium">Password</label>
           <input
+            id="register-password"
             type="password"
             required
             minLength={8}
@@ -65,13 +68,14 @@ export default function Register() {
             className="mt-1 w-full rounded border border-line bg-surface px-3 py-2 focus-visible:outline-none"
           />
         </div>
-        <div>
-          <label className="block text-sm font-medium">I am joining as a...</label>
+        <fieldset>
+          <legend className="block text-sm font-medium">I am joining as a...</legend>
           <div className="mt-2 flex gap-3">
             {["volunteer", "coordinator"].map((r) => (
               <button
                 type="button"
                 key={r}
+                aria-pressed={form.role === r}
                 onClick={() => update("role", r)}
                 className={`flex-1 rounded border px-3 py-2 text-sm capitalize ${
                   form.role === r
@@ -83,7 +87,7 @@ export default function Register() {
               </button>
             ))}
           </div>
-        </div>
+        </fieldset>
 
         {error && <p className="text-sm text-brick">{error}</p>}
 

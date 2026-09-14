@@ -1,6 +1,7 @@
 const express = require("express");
 const { db } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const { validate, profileUpdateSchema } = require("../validation");
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ router.get("/me/profile", requireAuth, requireRole("volunteer"), (req, res) => {
 });
 
 // PATCH /api/volunteers/me/profile — FR-02
-router.patch("/me/profile", requireAuth, requireRole("volunteer"), (req, res) => {
+router.patch("/me/profile", requireAuth, requireRole("volunteer"), validate(profileUpdateSchema), (req, res) => {
   const { skills, interests, availability, preferredLocations, commitmentPreference } = req.body;
   const fields = { skills, interests, availability, preferredLocations, commitmentPreference };
   const updates = [];

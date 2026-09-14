@@ -1,6 +1,12 @@
 const express = require("express");
 const { db, uuid } = require("../db");
-const { requireAuth, requireRole } = require("../middleware/auth");
+const { requireAuth, requireRole, optionalAuth } = require("../middleware/auth");
+const {
+  validate,
+  opportunityCreateSchema,
+  opportunityUpdateSchema,
+  applySchema,
+} = require("../validation");
 
 const router = express.Router();
 
@@ -41,7 +47,7 @@ router.get("/", (req, res) => {
 });
 
 // GET /api/opportunities/:id
-router.get("/:id", (req, res) => {
+router.get("/:id", optionalAuth, (req, res) => {
   const o = db.prepare("SELECT * FROM opportunities WHERE id = ?").get(req.params.id);
   if (!o) return res.status(404).json({ error: "Opportunity not found" });
 
@@ -49,22 +55,23 @@ router.get("/:id", (req, res) => {
     .prepare("SELECT COUNT(*) AS c FROM applications WHERE opportunityId = ? AND status = 'approved'")
     .get(o.id).c;
 
-  res.json({ ...o, requiresBriefing: !!o.requiresBriefing, approvedCount });
+  let myApplication = null;
+  if (req.user?.role === "volunteer") {
+    const found = db
+      .prepare("SELECT id, status, briefingConfirmed FROM applications WHERE opportunityId = ? AND volunteerId = ?")
+      .get(o.id, req.user.id);
+    if (found) myApplication = { ...found, briefingConfirmed: !!found.briefingConfirmed };
+  }
+
+  res.json({ ...o, requiresBriefing: !!o.requiresBriefing, approvedCount, myApplication });
 });
 
 // POST /api/opportunities — FR-06 (coordinator only)
-router.post("/", requireAuth, requireRole("coordinator"), (req, res) => {
+router.post("/", requireAuth, requireRole("coordinator"), validate(opportunityCreateSchema), (req, res) => {
   const {
     title, description, category, commitmentType, location,
     startDatetime, endDatetime, capacity, requiresBriefing,
   } = req.body;
-
-  if (!title || !description || !category || !commitmentType || !location || !startDatetime || !endDatetime || !capacity) {
-    return res.status(400).json({ error: "Missing required opportunity fields" });
-  }
-  if (!["ad_hoc", "recurring", "mentoring"].includes(commitmentType)) {
-    return res.status(400).json({ error: "commitmentType must be ad_hoc, recurring, or mentoring" });
-  }
 
   const id = uuid();
   db.prepare(
@@ -78,7 +85,7 @@ router.post("/", requireAuth, requireRole("coordinator"), (req, res) => {
 });
 
 // PATCH /api/opportunities/:id — coordinator only: edit/close/cancel
-router.patch("/:id", requireAuth, requireRole("coordinator"), (req, res) => {
+router.patch("/:id", requireAuth, requireRole("coordinator"), validate(opportunityUpdateSchema), (req, res) => {
   const existing = db.prepare("SELECT * FROM opportunities WHERE id = ?").get(req.params.id);
   if (!existing) return res.status(404).json({ error: "Opportunity not found" });
   if (existing.createdBy !== req.user.id) {
@@ -104,7 +111,7 @@ router.patch("/:id", requireAuth, requireRole("coordinator"), (req, res) => {
 });
 
 // POST /api/opportunities/:id/apply — FR-04 + FR-05 (volunteer only)
-router.post("/:id/apply", requireAuth, requireRole("volunteer"), (req, res) => {
+router.post("/:id/apply", requireAuth, requireRole("volunteer"), validate(applySchema), (req, res) => {
   const opportunity = db.prepare("SELECT * FROM opportunities WHERE id = ?").get(req.params.id);
   if (!opportunity) return res.status(404).json({ error: "Opportunity not found" });
   if (opportunity.status !== "open") {
@@ -149,7 +156,7 @@ router.get("/:id/applications", requireAuth, requireRole("coordinator"), (req, r
        WHERE a.opportunityId = ? ORDER BY a.createdAt ASC`
     )
     .all(opportunity.id);
-  res.json(rows);
+  res.json(rows.map((r) => ({ ...r, briefingConfirmed: !!r.briefingConfirmed })));
 });
 
 module.exports = router;

@@ -3,19 +3,13 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { db, uuid } = require("../db");
 const { JWT_SECRET } = require("../middleware/auth");
+const { validate, registerSchema, loginSchema } = require("../validation");
 
 const router = express.Router();
 
 // POST /api/auth/register  — FR-01
-router.post("/register", (req, res) => {
+router.post("/register", validate(registerSchema), (req, res) => {
   const { name, email, password, role } = req.body;
-
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: "name, email, and password are required" });
-  }
-  if (role && !["volunteer", "coordinator"].includes(role)) {
-    return res.status(400).json({ error: "role must be volunteer or coordinator" });
-  }
 
   const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
   if (existing) {
@@ -39,11 +33,8 @@ router.post("/register", (req, res) => {
 });
 
 // POST /api/auth/login
-router.post("/login", (req, res) => {
+router.post("/login", validate(loginSchema), (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ error: "email and password are required" });
-  }
 
   const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
   if (!user || !bcrypt.compareSync(password, user.passwordHash)) {

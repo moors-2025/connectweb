@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 
 export default function Nav() {
   const { user, logout } = useAuth();
@@ -18,9 +18,14 @@ export default function Nav() {
           </Link>
 
           {user?.role === "volunteer" && (
-            <Link to="/dashboard" className="hover:text-forest">
-              My dashboard
-            </Link>
+            <>
+              <Link to="/dashboard" className="hover:text-forest">
+                My dashboard
+              </Link>
+              <Link to="/profile" className="hover:text-forest">
+                My profile
+              </Link>
+            </>
           )}
           {user?.role === "coordinator" && (
             <Link to="/coordinator" className="hover:text-forest">

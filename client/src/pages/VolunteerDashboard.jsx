@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 import { api } from "../lib/api";
 import StatusBadge from "../components/StatusBadge";
+import Skeleton from "../components/Skeleton";
 
 export default function VolunteerDashboard() {
   const { user, token } = useAuth();
@@ -47,7 +48,9 @@ export default function VolunteerDashboard() {
       </div>
 
       {loading ? (
-        <p className="mt-10 text-ink/60">Loading your dashboard...</p>
+        <div className="mt-10">
+          <Skeleton rows={3} />
+        </div>
       ) : (
         <>
           <section className="mt-10">

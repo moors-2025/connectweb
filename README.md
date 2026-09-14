@@ -63,19 +63,46 @@ approve → record attendance → (back as the volunteer) see updated hours.
 
 ## What's implemented (MVP scope)
 
-- Auth: register/login, JWT, bcrypt (FR-01)
+- Auth: register/login, JWT, bcrypt (FR-01), server-side email/password validation
 - Volunteer profile (FR-02) — API done; a dedicated profile-edit page is a good next step
 - Opportunity catalogue with filtering by category/commitment type/location (FR-03)
 - Apply, with duplicate-application and full-capacity checks (FR-04, FR-05)
 - Coordinator: create/edit opportunities, review + approve/decline applications (FR-06, FR-07)
 - Attendance recording and volunteer hours (FR-08, FR-09)
-- Coordinator volunteer-hours report (FR-10)
+- Coordinator reporting: per-volunteer hours, per-opportunity breakdown, org-wide summary, and CSV export (FR-10)
 - Role-based access control (volunteer vs coordinator) enforced server-side
+- Security hardening: Helmet HTTP headers, auth-route rate limiting, request size cap, CORS origin restriction, production JWT-secret check
+- A simple SQLite backup script (`npm run backup` in `server/`)
 - Design: warm, non-corporate palette (forest green / marigold / teal), Source Serif 4 +
   Inter, opportunity cards with a colour-coded left border by commitment type
 
-## Not yet built (see Appendix F of the proposal for the full stretch list)
+## Live deployment
 
+- API: https://pertapis-api.onrender.com
+- Client: https://connectweb-j3tl.vercel.app
+- The API's data layer is SQLite by default; setting `DATABASE_URL` switches it to PostgreSQL via Prisma automatically (see "PostgreSQL migration" below). Check `/api/health` — it reports `dataLayer: "sqlite"` or `"postgres"`.
+
+## PostgreSQL migration (optional)
+
+The app defaults to the SQLite implementation (`server/src/db.js`, routes in `server/src/routes/`) because this project's build sandbox blocks Prisma's engine-binary download. A complete, parallel PostgreSQL implementation exists in `server/src/routes-prisma/` and `server/src/prisma-client.js`, and is used automatically whenever `DATABASE_URL` is set — nothing about the default SQLite path changes otherwise.
+
+To switch the live deployment over:
+1. Create a Render PostgreSQL database (free tier expires 30 days after creation — fine for a demo, not for anything longer-lived).
+2. Set `DATABASE_URL` on the web service to its Internal Database URL.
+3. Change the Build Command to `npm install && npx prisma generate && npx prisma db push` (not `migrate deploy` — there are no migration files yet, `db push` syncs the schema directly).
+4. Change the Start Command to `npm run seed:postgres && npm start`.
+5. Redeploy and check `/api/health` for `"dataLayer":"postgres"`.
+
+This Prisma code was written carefully against the same schema and business logic as the proven SQLite version, but **could not be executed or tested in the build sandbox** — verify it in a real deployment (where Prisma's binaries download normally) before relying on it.
+
+## Testing
+
+- Backend: `npm test` in `server/` — 10 tests (unit + API), all passing.
+- Frontend accessibility: `npm test` in `client/` — jest-axe against StatusBadge, Skeleton, OpportunityCard, Home, Login, and Register (6 tests, all passing; this run already caught and fixed two real unlabeled-input bugs on Login and Register).
+- End-to-end: `npm run test:e2e` in `client/` (Playwright) — written and runs in CI (`.github/workflows/ci.yml`); could not be executed in the build sandbox (headless browser downloads are blocked there too).
+
+## Not yet built
+
+- Azure AD / SSO login — deliberately not attempted; see the report's Limitations section for why
 - Weighted match scoring, audit log, email notifications, certificates, admin pages
-- Deployment (Vercel + Render/Railway) — see Section 14 of the proposal for the plan
-- A dedicated volunteer profile-edit page in the client (API route already exists)
+- Real-world verification of the Playwright suite and the PostgreSQL migration (both written, neither executable in the build sandbox)

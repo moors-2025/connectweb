@@ -25,4 +25,20 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { requireAuth, requireRole, JWT_SECRET };
+// Decodes the token if present but never blocks the request — used for public
+// routes that want to personalise the response (e.g. "have I already applied?")
+// without requiring login.
+function optionalAuth(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (token) {
+    try {
+      req.user = jwt.verify(token, JWT_SECRET);
+    } catch {
+      // invalid/expired token on an optional route: proceed unauthenticated
+    }
+  }
+  next();
+}
+
+module.exports = { requireAuth, requireRole, optionalAuth, JWT_SECRET };
