@@ -59,21 +59,16 @@ test.describe("Core journey: register, apply, approve, attend, hours", () => {
   test("coordinator can approve, record attendance, and the volunteer sees updated hours", async ({
     browser,
   }) => {
-    const volEmail = `e2e-flow-vol-${Date.now()}@test.com`;
+    // Self-contained by design: the coordinator creates and owns their own
+    // opportunity here, rather than relying on the seeded "Flag Day
+    // Fundraiser" (owned by the seeded coordinator Ali). That earlier
+    // approach was fragile under fullyParallel execution against shared
+    // seed data and only demonstrated RBAC-visibility, not a real approval
+    // (see RAID Log Issue I6, Appendix E) — this version exercises the
+    // actual apply -> approve -> attend -> hours transition at the UI level.
     const coordEmail = `e2e-flow-coord-${Date.now()}@test.com`;
-
-    const volContext = await browser.newContext();
-    const volPage = await volContext.newPage();
-    await volPage.goto("/register");
-    await volPage.getByLabel("Name").fill("Flow Volunteer");
-    await volPage.getByLabel("Email").fill(volEmail);
-    await volPage.getByLabel("Password").fill("password123");
-    await volPage.getByRole("button", { name: "Create account" }).click();
-    await volPage.goto("/opportunities");
-    await volPage.getByText("Flag Day Fundraiser").click();
-    await volPage.getByRole("button", { name: "Apply for this opportunity" }).click();
-    await expect(volPage.getByText(/Application submitted/)).toBeVisible();
-    const opportunityUrl = volPage.url();
+    const volEmail = `e2e-flow-vol-${Date.now()}@test.com`;
+    const title = `E2E Flow Test ${Date.now()}`;
 
     const coordContext = await browser.newContext();
     const coordPage = await coordContext.newPage();
@@ -84,12 +79,36 @@ test.describe("Core journey: register, apply, approve, attend, hours", () => {
     await coordPage.getByRole("button", { name: "coordinator", exact: true }).click();
     await coordPage.getByRole("button", { name: "Create account" }).click();
 
-    // The seeded coordinator (Ali) owns Flag Day Fundraiser, not this fresh
-    // coordinator, so this step demonstrates the RBAC-visible flow rather
-    // than a real approval — full approve/attend/hours is covered by the
-    // backend integration tests (server/test/api.test.js), which do own
-    // the opportunity and assert the state transitions directly.
-    await coordPage.goto(opportunityUrl);
-    await expect(coordPage.getByText("Flag Day Fundraiser")).toBeVisible();
+    await coordPage.goto("/coordinator/new");
+    await coordPage.getByLabel("Title").fill(title);
+    await coordPage.getByLabel("Description").fill("Created by the E2E suite; safe to ignore.");
+    await coordPage.getByLabel("Location").fill("Test Site");
+    await coordPage.getByLabel("Starts").fill("2027-01-01T09:00");
+    await coordPage.getByLabel("Ends").fill("2027-01-01T12:00");
+    await coordPage.getByLabel("Capacity").fill("5");
+    await coordPage.getByRole("button", { name: "Publish opportunity" }).click();
+    await expect(coordPage).toHaveURL(/\/opportunities\//);
+    const opportunityUrl = coordPage.url();
+
+    const volContext = await browser.newContext();
+    const volPage = await volContext.newPage();
+    await volPage.goto("/register");
+    await volPage.getByLabel("Name").fill("Flow Volunteer");
+    await volPage.getByLabel("Email").fill(volEmail);
+    await volPage.getByLabel("Password").fill("password123");
+    await volPage.getByRole("button", { name: "Create account" }).click();
+    await volPage.goto(opportunityUrl);
+    await volPage.getByRole("button", { name: "Apply for this opportunity" }).click();
+    await expect(volPage.getByText(/Application submitted/)).toBeVisible();
+
+    await coordPage.reload();
+    await coordPage.getByRole("button", { name: "Approve" }).click();
+    await expect(coordPage.getByPlaceholder("hrs")).toBeVisible();
+    await coordPage.getByPlaceholder("hrs").fill("3");
+    await coordPage.getByRole("button", { name: "Record attendance" }).click();
+    await expect(coordPage.getByText("Attendance recorded")).toBeVisible();
+
+    await volPage.goto("/dashboard");
+    await expect(volPage.getByText("3", { exact: true })).toBeVisible();
   });
 });
