@@ -78,6 +78,7 @@ test.describe("Core journey: register, apply, approve, attend, hours", () => {
     await coordPage.getByLabel("Password").fill("password123");
     await coordPage.getByRole("button", { name: "coordinator", exact: true }).click();
     await coordPage.getByRole("button", { name: "Create account" }).click();
+    await expect(coordPage).toHaveURL(/\/coordinator/);
 
     await coordPage.goto("/coordinator/new");
     await coordPage.getByLabel("Title").fill(title);
@@ -97,6 +98,7 @@ test.describe("Core journey: register, apply, approve, attend, hours", () => {
     await volPage.getByLabel("Email").fill(volEmail);
     await volPage.getByLabel("Password").fill("password123");
     await volPage.getByRole("button", { name: "Create account" }).click();
+    await expect(volPage).toHaveURL(/\/dashboard/);
     await volPage.goto(opportunityUrl);
     await volPage.getByRole("button", { name: "Apply for this opportunity" }).click();
     await expect(volPage.getByText(/Application submitted/)).toBeVisible();
@@ -109,6 +111,10 @@ test.describe("Core journey: register, apply, approve, attend, hours", () => {
     await expect(coordPage.getByText("Attendance recorded")).toBeVisible();
 
     await volPage.goto("/dashboard");
-    await expect(volPage.getByText("3", { exact: true })).toBeVisible();
+    // Targets the exact <p> that follows the "Hours contributed" label,
+    // rather than searching for "3" on the page generally or relying on
+    // div-nesting order — this only passes if that specific stat updated.
+    const hoursValue = volPage.locator('xpath=//p[text()="Hours contributed"]/following-sibling::p[1]');
+    await expect(hoursValue).toHaveText("3");
   });
 });
