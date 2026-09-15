@@ -26,7 +26,7 @@ function AdminAction({ label, description, onRun }) {
   }
 
   return (
-    <div className="rounded border border-line p-4">
+    <div className="rounded border border-line p-4 print:hidden">
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="font-medium">{label}</p>
@@ -58,9 +58,17 @@ export default function AdminDashboard() {
   return (
     <div className="mx-auto max-w-4xl px-6 py-12">
       <h1 className="font-display text-3xl font-semibold">System overview</h1>
-      <p className="mt-1 text-sm text-ink/60">
-        Signed in as {user.name} · read-only report, refreshed on each visit.
-      </p>
+      <div className="mt-1 flex items-center justify-between">
+        <p className="text-sm text-ink/60">
+          Signed in as {user.name} · read-only report, refreshed on each visit.
+        </p>
+        <button
+          onClick={() => window.print()}
+          className="print:hidden shrink-0 rounded border border-line px-3 py-1.5 text-sm hover:border-forest hover:text-forest"
+        >
+          Print report
+        </button>
+      </div>
 
       {loading ? (
         <div className="mt-10">
@@ -121,7 +129,7 @@ export default function AdminDashboard() {
             </ul>
           </section>
 
-          <section className="mt-10">
+          <section className="mt-10 print:hidden">
             <h2 className="font-display text-xl font-semibold">Operational tools</h2>
             <div className="mt-3 space-y-3">
               <AdminAction
