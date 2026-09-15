@@ -54,6 +54,10 @@ export const api = {
   volunteerHoursReport: (token) => request("/reports/volunteer-hours", { token }),
   opportunityBreakdown: (token) => request("/reports/opportunity-breakdown", { token }),
   reportSummary: (token) => request("/reports/summary", { token }),
+
+  adminOverview: (token) => request("/admin/overview", { token }),
+  adminBackup: (token) => request("/admin/backup", { method: "POST", token }),
+  adminReindex: (token) => request("/admin/reindex", { method: "POST", token }),
 };
 
 // CSV export needs the auth header, so it can't just be a plain <a href> link —

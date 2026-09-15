@@ -32,6 +32,11 @@ export default function Nav() {
               Coordinator dashboard
             </Link>
           )}
+          {user?.role === "admin" && (
+            <Link to="/admin" className="hover:text-forest">
+              Admin
+            </Link>
+          )}
 
           {user ? (
             <button

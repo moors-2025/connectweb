@@ -20,7 +20,7 @@ db.exec(`
     name TEXT NOT NULL,
     email TEXT NOT NULL UNIQUE,
     passwordHash TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('volunteer','coordinator')),
+    role TEXT NOT NULL CHECK (role IN ('volunteer','coordinator','admin')),
     createdAt TEXT NOT NULL DEFAULT (datetime('now'))
   );
 

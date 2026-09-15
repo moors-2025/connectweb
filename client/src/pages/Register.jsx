@@ -19,7 +19,7 @@ export default function Register() {
     setLoading(true);
     try {
       const user = await register(form);
-      navigate(user.role === "coordinator" ? "/coordinator" : "/dashboard");
+      navigate(user.role === "coordinator" ? "/coordinator" : user.role === "admin" ? "/admin" : "/dashboard");
     } catch (err) {
       setError(err.message);
     } finally {

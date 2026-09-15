@@ -11,6 +11,7 @@ import VolunteerDashboard from "./pages/VolunteerDashboard";
 import VolunteerProfile from "./pages/VolunteerProfile";
 import CoordinatorDashboard from "./pages/CoordinatorDashboard";
 import CreateOpportunity from "./pages/CreateOpportunity";
+import AdminDashboard from "./pages/AdminDashboard";
 
 export default function App() {
   return (
@@ -53,6 +54,14 @@ export default function App() {
               element={
                 <RequireRole role="coordinator">
                   <CreateOpportunity />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <RequireRole role="admin">
+                  <AdminDashboard />
                 </RequireRole>
               }
             />

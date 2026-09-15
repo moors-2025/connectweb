@@ -16,6 +16,7 @@ function upsertUser({ name, email, password, role }) {
 
 const mei = upsertUser({ name: "Mei", email: "mei@example.com", password: "password123", role: "volunteer" });
 const ali = upsertUser({ name: "Mr Ali", email: "ali@example.com", password: "password123", role: "coordinator" });
+const admin = upsertUser({ name: "System Admin", email: "admin@example.com", password: "password123", role: "admin" });
 
 const existingOpp = db.prepare("SELECT id FROM opportunities WHERE title = ?").get("Youth Learning Support");
 if (!existingOpp) {
@@ -56,3 +57,4 @@ if (!existingOpp) {
 console.log("Seed complete.");
 console.log("Volunteer login: mei@example.com / password123");
 console.log("Coordinator login: ali@example.com / password123");
+console.log("Admin login: admin@example.com / password123");

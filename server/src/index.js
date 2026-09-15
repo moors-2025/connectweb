@@ -10,6 +10,7 @@ const applicationRoutes = require("./routes/applications");
 const attendanceRoutes = require("./routes/attendance");
 const volunteerRoutes = require("./routes/volunteers");
 const reportRoutes = require("./routes/reports");
+const adminRoutes = require("./routes/admin"); // basic, read-only; see Appendix F for the full admin-role scope not yet built
 
 // If DATABASE_URL is set, use the PostgreSQL/Prisma route implementations
 // instead of the default SQLite ones (see Appendix L: Postgres Migration).
@@ -24,6 +25,9 @@ const routes = usingPostgres
       attendance: require("./routes-prisma/attendance"),
       volunteers: require("./routes-prisma/volunteers"),
       reports: require("./routes-prisma/reports"),
+      // admin: intentionally omitted under Postgres for now — the basic admin
+      // report queries the SQLite `db` module directly; a Prisma equivalent
+      // is a small, later addition, not built here to avoid an untestable stub.
     }
   : {
       auth: authRoutes,
@@ -32,6 +36,7 @@ const routes = usingPostgres
       attendance: attendanceRoutes,
       volunteers: volunteerRoutes,
       reports: reportRoutes,
+      admin: adminRoutes,
     };
 
 const app = express();
@@ -71,6 +76,7 @@ app.use("/api/applications", routes.applications);
 app.use("/api/attendance", routes.attendance);
 app.use("/api/volunteers", routes.volunteers);
 app.use("/api/reports", routes.reports);
+if (routes.admin) app.use("/api/admin", routes.admin);
 
 app.use((req, res) => res.status(404).json({ error: "Not found" }));
 // eslint-disable-next-line no-unused-vars
