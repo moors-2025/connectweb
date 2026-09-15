@@ -131,7 +131,7 @@ export default function AdminDashboard() {
               />
               <AdminAction
                 label="Rebuild indexes"
-                description="Runs SQLite's REINDEX. A basic prototype only \u2014 not a tuned indexing strategy (Appendix F)."
+                description="Runs SQLite's REINDEX. A basic prototype only — not a tuned indexing strategy (Appendix F)."
                 onRun={() => api.adminReindex(token)}
               />
             </div>
