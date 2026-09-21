@@ -471,3 +471,21 @@ test("logout clears the auth cookie", async () => {
   const profileRes = await agent.get("/api/volunteers/me/profile");
   assert.strictEqual(profileRes.status, 401, "after logout, the cleared cookie must no longer authenticate");
 });
+
+test("CORS response is safe for credentialed cross-origin requests (no wildcard + credentials)", async () => {
+  // This is a regression test for a real bug shipped once: enabling
+  // `credentials: true` without a concrete `origin` makes the `cors` package
+  // default to the wildcard "*", which every browser then refuses to accept
+  // for a credentialed request (the httpOnly-cookie auth flow) — the request
+  // fails client-side with a CORS error even though the server responds 200.
+  const res = await request(app)
+    .get("/api/health")
+    .set("Origin", "https://example-client.test");
+
+  assert.strictEqual(
+    res.headers["access-control-allow-origin"],
+    "https://example-client.test",
+    "must reflect the specific request origin, never '*', once credentials are enabled"
+  );
+  assert.strictEqual(res.headers["access-control-allow-credentials"], "true");
+});
