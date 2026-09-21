@@ -2,6 +2,7 @@ require("dotenv").config({ quiet: true }); // suppresses dotenv's promotional st
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
+const cookieParser = require("cookie-parser");
 const rateLimit = require("express-rate-limit");
 
 const authRoutes = require("./routes/auth");
@@ -46,11 +47,15 @@ app.use(helmet());
 
 // Restrict CORS to a configured origin in production; permissive in dev so the
 // Vite dev server (a different port) still works without extra setup.
+// `credentials: true` is required for the browser to send/receive the httpOnly
+// auth cookie cross-origin (client on Vercel, API on Render); it only takes
+// effect together with a specific origin, never with the wildcard default.
 const corsOrigin = process.env.CORS_ORIGIN;
-app.use(cors(corsOrigin ? { origin: corsOrigin } : {}));
+app.use(cors(corsOrigin ? { origin: corsOrigin, credentials: true } : { credentials: true }));
 
 // Cap request body size to reduce large-payload DoS surface.
 app.use(express.json({ limit: "100kb" }));
+app.use(cookieParser());
 
 // Refuse to boot with the insecure default JWT secret outside development.
 if (process.env.NODE_ENV === "production" && (!process.env.JWT_SECRET || process.env.JWT_SECRET === "dev-secret-change-me")) {

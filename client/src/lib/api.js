@@ -4,12 +4,17 @@
 // e.g. https://pertapis-volunteer-connect-api.onrender.com/api
 const BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
-async function request(path, { method = "GET", body, token } = {}) {
+// `token` is accepted for backward compatibility with existing call sites but is
+// no longer used to build an Authorization header: the browser is authenticated
+// via the httpOnly cookie the server sets on login/register, which `credentials:
+// "include"` tells fetch to send automatically. JavaScript never sees the token
+// itself, so it can't be exfiltrated by an XSS payload the way sessionStorage could.
+async function request(path, { method = "GET", body } = {}) {
   const res = await fetch(`${BASE}${path}`, {
     method,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -24,6 +29,7 @@ async function request(path, { method = "GET", body, token } = {}) {
 export const api = {
   register: (payload) => request("/auth/register", { method: "POST", body: payload }),
   login: (payload) => request("/auth/login", { method: "POST", body: payload }),
+  logout: () => request("/auth/logout", { method: "POST" }),
 
   listOpportunities: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
@@ -69,11 +75,12 @@ export const api = {
     request(`/admin/users/${id}/transfer-ownership`, { method: "POST", body: { newOwnerId }, token }),
 };
 
-// CSV export needs the auth header, so it can't just be a plain <a href> link —
+// CSV export needs the auth cookie sent along, so it can't just be a plain
+// <a href> link (a bare navigation wouldn't include credentials the same way) —
 // fetch it as a blob and trigger the browser download manually.
-export async function downloadVolunteerHoursCsv(token) {
+export async function downloadVolunteerHoursCsv() {
   const res = await fetch(`${BASE}/reports/volunteer-hours/export.csv`, {
-    headers: { Authorization: `Bearer ${token}` },
+    credentials: "include",
   });
   if (!res.ok) throw new Error("Could not export the report");
   const blob = await res.blob();

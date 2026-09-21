@@ -2,7 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { prisma } = require("../prisma-client");
-const { JWT_SECRET } = require("../middleware/auth");
+const { JWT_SECRET, AUTH_COOKIE_NAME, authCookieOptions } = require("../middleware/auth");
 const { validate, registerSchema, loginSchema } = require("../validation");
 
 const router = express.Router();
@@ -32,6 +32,7 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
     const token = jwt.sign({ id: user.id, role: user.role, email: user.email, name: user.name }, JWT_SECRET, {
       expiresIn: "7d",
     });
+    res.cookie(AUTH_COOKIE_NAME, token, authCookieOptions());
     res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (err) {
     next(err);
@@ -50,10 +51,16 @@ router.post("/login", validate(loginSchema), async (req, res, next) => {
     const token = jwt.sign({ id: user.id, role: user.role, email: user.email, name: user.name }, JWT_SECRET, {
       expiresIn: "7d",
     });
+    res.cookie(AUTH_COOKIE_NAME, token, authCookieOptions());
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (err) {
     next(err);
   }
+});
+
+router.post("/logout", (req, res) => {
+  res.clearCookie(AUTH_COOKIE_NAME, authCookieOptions());
+  res.json({ success: true });
 });
 
 module.exports = router;
