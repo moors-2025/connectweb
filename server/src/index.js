@@ -48,10 +48,15 @@ app.use(helmet());
 // Restrict CORS to a configured origin in production; permissive in dev so the
 // Vite dev server (a different port) still works without extra setup.
 // `credentials: true` is required for the browser to send/receive the httpOnly
-// auth cookie cross-origin (client on Vercel, API on Render); it only takes
-// effect together with a specific origin, never with the wildcard default.
+// auth cookie cross-origin (client on Vercel, API on Render), but browsers
+// reject that combined with a wildcard origin — the `cors` package's default
+// when no `origin` option is given at all. Falling back to `{ credentials: true }`
+// alone (no `origin` key) hits exactly that wildcard-plus-credentials case and
+// breaks every request from the browser; `origin: true` (reflect the request's
+// own Origin header) is the fix when CORS_ORIGIN isn't set. Set CORS_ORIGIN on
+// the real deployment to lock this down to the actual client origin.
 const corsOrigin = process.env.CORS_ORIGIN;
-app.use(cors(corsOrigin ? { origin: corsOrigin, credentials: true } : { credentials: true }));
+app.use(cors({ origin: corsOrigin || true, credentials: true }));
 
 // Cap request body size to reduce large-payload DoS surface.
 app.use(express.json({ limit: "100kb" }));
