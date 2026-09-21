@@ -425,3 +425,49 @@ test("concurrent approvals for the same capacity-1 opportunity never both succee
   const approvedCount = listRes.body.filter((a) => a.status === "approved").length;
   assert.strictEqual(approvedCount, 1, "the opportunity must never end up over capacity");
 });
+
+test("login sets an httpOnly auth cookie", async () => {
+  const email = "cookieuser1@test.com";
+  await request(app)
+    .post("/api/auth/register")
+    .send({ name: "Cookie User", email, password: "password123", role: "volunteer" });
+
+  const res = await request(app)
+    .post("/api/auth/login")
+    .send({ email, password: "password123" });
+
+  const setCookie = res.headers["set-cookie"];
+  assert.ok(setCookie, "login response should set a cookie");
+  const tokenCookie = setCookie.find((c) => c.startsWith("token="));
+  assert.ok(tokenCookie, "the cookie should be named 'token'");
+  assert.match(tokenCookie, /HttpOnly/i, "the auth cookie must be HttpOnly so page JS can't read it");
+});
+
+test("a protected route accepts the auth cookie alone, with no Authorization header", async () => {
+  const email = "cookieuser2@test.com";
+  const agent = request.agent(app); // supertest's cookie-jar-aware client
+
+  await agent
+    .post("/api/auth/register")
+    .send({ name: "Cookie User 2", email, password: "password123", role: "volunteer" });
+
+  // The agent now holds the cookie from the register response; this request
+  // deliberately sets no Authorization header at all.
+  const res = await agent.get("/api/volunteers/me/profile");
+  assert.strictEqual(res.status, 200, "the cookie alone should be enough to authenticate");
+});
+
+test("logout clears the auth cookie", async () => {
+  const email = "cookieuser3@test.com";
+  const agent = request.agent(app);
+
+  await agent
+    .post("/api/auth/register")
+    .send({ name: "Cookie User 3", email, password: "password123", role: "volunteer" });
+
+  const logoutRes = await agent.post("/api/auth/logout");
+  assert.strictEqual(logoutRes.status, 200);
+
+  const profileRes = await agent.get("/api/volunteers/me/profile");
+  assert.strictEqual(profileRes.status, 401, "after logout, the cleared cookie must no longer authenticate");
+});
