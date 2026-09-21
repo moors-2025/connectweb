@@ -46,6 +46,17 @@ const attendanceSchema = z.object({
   hoursCompleted: z.coerce.number().min(0).max(24).optional(),
 });
 
+// Admin user-management (server/src/routes/admin.js): enable/disable a user account.
+const adminUserPatchSchema = z.object({
+  active: z.boolean(),
+});
+
+// Admin user-management: reassign a user's created opportunities to another
+// active coordinator or admin, ahead of disabling them.
+const adminTransferOwnershipSchema = z.object({
+  newOwnerId: z.string().min(1, "newOwnerId is required"),
+});
+
 const profileUpdateSchema = z.object({
   skills: z.string().max(1000).optional().nullable(),
   interests: z.string().max(1000).optional().nullable(),
@@ -78,4 +89,6 @@ module.exports = {
   applicationPatchSchema,
   attendanceSchema,
   profileUpdateSchema,
+  adminUserPatchSchema,
+  adminTransferOwnershipSchema,
 };

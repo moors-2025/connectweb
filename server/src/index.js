@@ -10,7 +10,7 @@ const applicationRoutes = require("./routes/applications");
 const attendanceRoutes = require("./routes/attendance");
 const volunteerRoutes = require("./routes/volunteers");
 const reportRoutes = require("./routes/reports");
-const adminRoutes = require("./routes/admin"); // basic, read-only; see Appendix F for the full admin-role scope not yet built
+const adminRoutes = require("./routes/admin"); // overview + backup/reindex + user list/disable/transfer-ownership; full user creation/editing pages remain Appendix F
 
 // If DATABASE_URL is set, use the PostgreSQL/Prisma route implementations
 // instead of the default SQLite ones (see Appendix L: Postgres Migration).
@@ -59,11 +59,15 @@ if (process.env.NODE_ENV === "production" && (!process.env.JWT_SECRET || process
 }
 
 // Rate-limit auth endpoints specifically: the highest-value target for brute-force/credential-stuffing.
+// Skipped under the test runner: the suite creates dozens of users per run (test/api.test.js),
+// which would otherwise trip this limiter well before 20 real login attempts ever happened —
+// a test-harness artifact, not something the limiter is meant to catch.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === "test",
   message: { error: "Too many auth attempts, please try again later." },
 });
 app.use("/api/auth", authLimiter);
