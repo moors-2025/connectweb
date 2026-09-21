@@ -16,6 +16,7 @@ datasource db {
 enum Role {
   volunteer
   coordinator
+  admin
 }
 
 enum CommitmentType {
@@ -42,6 +43,10 @@ model User {
   email          String   @unique
   passwordHash   String
   role           Role
+  // Soft-delete flag for the admin user-management feature (server/src/routes/admin.js).
+  // Documented here for schema parity with the SQLite path; the Prisma/PostgreSQL admin
+  // routes themselves remain out of scope for now (see server/src/index.js).
+  active         Boolean  @default(true)
   createdAt      DateTime @default(now())
 
   profile        VolunteerProfile?

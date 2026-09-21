@@ -1,16 +1,33 @@
 process.env.DB_PATH = ":memory:";
 process.env.JWT_SECRET = "test-secret";
+process.env.NODE_ENV = "test";
 
 const test = require("node:test");
 const assert = require("node:assert");
 const request = require("supertest");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 const app = require("../src/index");
+const { db, uuid } = require("../src/db");
+const { JWT_SECRET } = require("../src/middleware/auth");
 
 async function registerAndLogin(role, email) {
   const res = await request(app)
     .post("/api/auth/register")
     .send({ name: role, email, password: "password123", role });
   return res.body.token;
+}
+
+// /api/auth/register only accepts volunteer/coordinator (admins are seeded, not
+// self-registered — see src/routes/auth.js), so admin test fixtures are inserted
+// directly, the same way server/src/seed.js creates the real admin@example.com.
+function createAdmin(name, email) {
+  const id = uuid();
+  db.prepare(
+    "INSERT INTO users (id, name, email, passwordHash, role) VALUES (?, ?, ?, ?, 'admin')"
+  ).run(id, name, email, bcrypt.hashSync("password123", 10));
+  const token = jwt.sign({ id, role: "admin", email, name }, JWT_SECRET, { expiresIn: "7d" });
+  return { id, token };
 }
 
 test("volunteer can register and log in", async () => {
@@ -225,4 +242,150 @@ test("application is rejected once capacity is reached", async () => {
   const secondApproval = await request(app).patch(`/api/applications/${app2.body.id}`).set("Authorization", `Bearer ${coordToken}`).send({ status: "approved" });
 
   assert.strictEqual(secondApproval.status, 400);
+});
+
+test("admin can list users and filter by role", async () => {
+  const admin = createAdmin("Admin One", "adminlist@test.com");
+  await registerAndLogin("volunteer", "listvol@test.com");
+  await registerAndLogin("coordinator", "listcoord@test.com");
+
+  const all = await request(app).get("/api/admin/users").set("Authorization", `Bearer ${admin.token}`);
+  assert.strictEqual(all.status, 200);
+  assert.ok(all.body.some((u) => u.email === "listvol@test.com"));
+  assert.ok(all.body.every((u) => "ownedCount" in u && "active" in u));
+
+  const coordsOnly = await request(app)
+    .get("/api/admin/users?role=coordinator")
+    .set("Authorization", `Bearer ${admin.token}`);
+  assert.ok(coordsOnly.body.every((u) => u.role === "coordinator"));
+});
+
+test("a non-admin cannot list or modify users", async () => {
+  const volToken = await registerAndLogin("volunteer", "notadmin@test.com");
+  const res = await request(app).get("/api/admin/users").set("Authorization", `Bearer ${volToken}`);
+  assert.strictEqual(res.status, 403);
+});
+
+test("admin can disable and re-enable a user with no owned opportunities", async () => {
+  const admin = createAdmin("Admin Two", "admindisable@test.com");
+  const volToken = await registerAndLogin("volunteer", "disableme@test.com");
+  const meRes = await request(app).post("/api/auth/login").send({ email: "disableme@test.com", password: "password123" });
+  const volId = meRes.body.user.id;
+  void volToken;
+
+  const disableRes = await request(app)
+    .patch(`/api/admin/users/${volId}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ active: false });
+  assert.strictEqual(disableRes.status, 200);
+  assert.strictEqual(disableRes.body.active, false);
+
+  const loginBlocked = await request(app).post("/api/auth/login").send({ email: "disableme@test.com", password: "password123" });
+  assert.strictEqual(loginBlocked.status, 403);
+
+  const enableRes = await request(app)
+    .patch(`/api/admin/users/${volId}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ active: true });
+  assert.strictEqual(enableRes.status, 200);
+  assert.strictEqual(enableRes.body.active, true);
+
+  const loginRestored = await request(app).post("/api/auth/login").send({ email: "disableme@test.com", password: "password123" });
+  assert.strictEqual(loginRestored.status, 200);
+});
+
+test("admin cannot disable their own account", async () => {
+  const admin = createAdmin("Admin Three", "adminself@test.com");
+  const res = await request(app)
+    .patch(`/api/admin/users/${admin.id}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ active: false });
+  assert.strictEqual(res.status, 400);
+});
+
+test("disabling a coordinator with owned opportunities is blocked until ownership is transferred", async () => {
+  const admin = createAdmin("Admin Four", "admintransfer@test.com");
+  const coordToken = await registerAndLogin("coordinator", "ownercoord@test.com");
+  const newOwnerToken = await registerAndLogin("coordinator", "neowner@test.com");
+  void newOwnerToken;
+
+  const coordId = jwt.verify(coordToken, JWT_SECRET).id;
+  const newOwnerId = jwt.verify(newOwnerToken, JWT_SECRET).id;
+
+  const oppRes = await request(app)
+    .post("/api/opportunities")
+    .set("Authorization", `Bearer ${coordToken}`)
+    .send({
+      title: "Owned Opportunity", description: "d", category: "c",
+      commitmentType: "ad_hoc", location: "l",
+      startDatetime: "2026-10-01T10:00:00", endDatetime: "2026-10-01T12:00:00",
+      capacity: 1,
+    });
+  assert.strictEqual(oppRes.status, 201);
+
+  const blockedDisable = await request(app)
+    .patch(`/api/admin/users/${coordId}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ active: false });
+  assert.strictEqual(blockedDisable.status, 400);
+  assert.strictEqual(blockedDisable.body.ownedCount, 1);
+
+  const transferRes = await request(app)
+    .post(`/api/admin/users/${coordId}/transfer-ownership`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ newOwnerId });
+  assert.strictEqual(transferRes.status, 200);
+  assert.strictEqual(transferRes.body.reassigned, 1);
+
+  const nowAllowedDisable = await request(app)
+    .patch(`/api/admin/users/${coordId}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ active: false });
+  assert.strictEqual(nowAllowedDisable.status, 200);
+
+  const check = await request(app)
+    .get(`/api/opportunities/${oppRes.body.id}`)
+    .set("Authorization", `Bearer ${admin.token}`);
+  assert.strictEqual(check.body.createdBy, newOwnerId);
+});
+
+test("ownership transfer rejects a volunteer or disabled account as the new owner", async () => {
+  const admin = createAdmin("Admin Five", "adminreject@test.com");
+  const coordToken = await registerAndLogin("coordinator", "rejectcoord@test.com");
+  const volToken = await registerAndLogin("volunteer", "rejectvol@test.com");
+  void volToken;
+
+  const coordId = jwt.verify(coordToken, JWT_SECRET).id;
+  const meRes = await request(app).post("/api/auth/login").send({ email: "rejectvol@test.com", password: "password123" });
+  const volId = meRes.body.user.id;
+
+  const oppRes = await request(app)
+    .post("/api/opportunities")
+    .set("Authorization", `Bearer ${coordToken}`)
+    .send({
+      title: "Reject Test", description: "d", category: "c",
+      commitmentType: "ad_hoc", location: "l",
+      startDatetime: "2026-10-01T10:00:00", endDatetime: "2026-10-01T12:00:00",
+      capacity: 1,
+    });
+  assert.strictEqual(oppRes.status, 201);
+
+  const toVolunteer = await request(app)
+    .post(`/api/admin/users/${coordId}/transfer-ownership`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ newOwnerId: volId });
+  assert.strictEqual(toVolunteer.status, 400);
+
+  const disabledCoordToken = await registerAndLogin("coordinator", "disabledtarget@test.com");
+  const disabledCoordId = jwt.verify(disabledCoordToken, JWT_SECRET).id;
+  await request(app)
+    .patch(`/api/admin/users/${disabledCoordId}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ active: false });
+
+  const toDisabled = await request(app)
+    .post(`/api/admin/users/${coordId}/transfer-ownership`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ newOwnerId: disabledCoordId });
+  assert.strictEqual(toDisabled.status, 400);
 });

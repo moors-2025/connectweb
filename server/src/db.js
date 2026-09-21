@@ -21,6 +21,7 @@ db.exec(`
     email TEXT NOT NULL UNIQUE,
     passwordHash TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('volunteer','coordinator','admin')),
+    active INTEGER NOT NULL DEFAULT 1,
     createdAt TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -73,6 +74,16 @@ db.exec(`
     UNIQUE(opportunityId, volunteerId)
   );
 `);
+
+// Migration guard: `CREATE TABLE IF NOT EXISTS` above only applies to a fresh
+// database. An existing data.sqlite from before the admin-CRUD feature won't
+// have the `active` column, so add it here if missing (idempotent — checked
+// via PRAGMA table_info rather than a try/catch on ALTER TABLE, so it never
+// logs a spurious "duplicate column" error on a normal restart).
+const usersColumns = db.prepare("PRAGMA table_info(users)").all();
+if (!usersColumns.some((c) => c.name === "active")) {
+  db.exec("ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1;");
+}
 
 function uuid() {
   return crypto.randomUUID();

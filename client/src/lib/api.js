@@ -58,6 +58,15 @@ export const api = {
   adminOverview: (token) => request("/admin/overview", { token }),
   adminBackup: (token) => request("/admin/backup", { method: "POST", token }),
   adminReindex: (token) => request("/admin/reindex", { method: "POST", token }),
+
+  adminListUsers: (params = {}, token) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/users${qs ? `?${qs}` : ""}`, { token });
+  },
+  adminSetUserActive: (id, active, token) =>
+    request(`/admin/users/${id}`, { method: "PATCH", body: { active }, token }),
+  adminTransferOwnership: (id, newOwnerId, token) =>
+    request(`/admin/users/${id}/transfer-ownership`, { method: "POST", body: { newOwnerId }, token }),
 };
 
 // CSV export needs the auth header, so it can't just be a plain <a href> link —
