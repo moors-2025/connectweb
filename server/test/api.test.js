@@ -389,3 +389,39 @@ test("ownership transfer rejects a volunteer or disabled account as the new owne
     .send({ newOwnerId: disabledCoordId });
   assert.strictEqual(toDisabled.status, 400);
 });
+
+test("concurrent approvals for the same capacity-1 opportunity never both succeed", async () => {
+  const coordToken = await registerAndLogin("coordinator", "raceoord@test.com");
+  const vol1Token = await registerAndLogin("volunteer", "racevol1@test.com");
+  const vol2Token = await registerAndLogin("volunteer", "racevol2@test.com");
+
+  const oppRes = await request(app)
+    .post("/api/opportunities")
+    .set("Authorization", `Bearer ${coordToken}`)
+    .send({
+      title: "Race Condition Test", description: "d", category: "c",
+      commitmentType: "ad_hoc", location: "l",
+      startDatetime: "2026-10-01T10:00:00", endDatetime: "2026-10-01T12:00:00",
+      capacity: 1,
+    });
+  const oppId = oppRes.body.id;
+
+  const app1 = await request(app).post(`/api/opportunities/${oppId}/apply`).set("Authorization", `Bearer ${vol1Token}`).send({});
+  const app2 = await request(app).post(`/api/opportunities/${oppId}/apply`).set("Authorization", `Bearer ${vol2Token}`).send({});
+
+  // Fire both approvals concurrently (Promise.all, not awaited one at a time) —
+  // this is the scenario the capacity check + update transaction guards against.
+  const [res1, res2] = await Promise.all([
+    request(app).patch(`/api/applications/${app1.body.id}`).set("Authorization", `Bearer ${coordToken}`).send({ status: "approved" }),
+    request(app).patch(`/api/applications/${app2.body.id}`).set("Authorization", `Bearer ${coordToken}`).send({ status: "approved" }),
+  ]);
+
+  const statuses = [res1.status, res2.status].sort();
+  assert.deepStrictEqual(statuses, [200, 400], "exactly one approval should succeed and one should be rejected for capacity");
+
+  const listRes = await request(app)
+    .get(`/api/opportunities/${oppId}/applications`)
+    .set("Authorization", `Bearer ${coordToken}`);
+  const approvedCount = listRes.body.filter((a) => a.status === "approved").length;
+  assert.strictEqual(approvedCount, 1, "the opportunity must never end up over capacity");
+});

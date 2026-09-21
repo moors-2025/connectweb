@@ -89,4 +89,29 @@ function uuid() {
   return crypto.randomUUID();
 }
 
-module.exports = { db, uuid };
+// Wraps a check-then-write sequence (e.g. "count approved applications, then
+// insert one if under capacity") in an explicit SQLite transaction, so the
+// check and the write commit or fail together rather than as two independent
+// statements. node:sqlite's DatabaseSync API is synchronous and every route
+// handler here runs with no `await` between the check and the write, so
+// Node's single-threaded event loop already can't interleave a second
+// request's handler in between them — there's no live race today. This
+// wrapper is defense-in-depth rather than a fix for an exploitable bug: it
+// keeps the check+write atomic if a future change ever introduces an async
+// boundary (e.g. an await'd side effect) between them, which would otherwise
+// silently reopen the same race the Prisma/PostgreSQL path has to guard
+// against explicitly (see routes-prisma/applications.js and
+// routes-prisma/opportunities.js).
+function transaction(fn) {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = fn();
+    db.exec("COMMIT");
+    return result;
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+module.exports = { db, uuid, transaction };

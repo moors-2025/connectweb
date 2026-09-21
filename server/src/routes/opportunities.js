@@ -1,5 +1,5 @@
 const express = require("express");
-const { db, uuid } = require("../db");
+const { db, uuid, transaction } = require("../db");
 const { requireAuth, requireRole, optionalAuth } = require("../middleware/auth");
 const {
   validate,
@@ -118,26 +118,38 @@ router.post("/:id/apply", requireAuth, requireRole("volunteer"), validate(applyS
     return res.status(400).json({ error: "This opportunity is not open for applications" });
   }
 
-  const approvedCount = db
-    .prepare("SELECT COUNT(*) AS c FROM applications WHERE opportunityId = ? AND status = 'approved'")
-    .get(opportunity.id).c;
-  if (approvedCount >= opportunity.capacity) {
-    return res.status(400).json({ error: "This opportunity is already at capacity" });
+  // Capacity + duplicate-application checks and the insert run inside one
+  // transaction (see db.js's transaction() for why this is defense-in-depth
+  // rather than a fix for a live bug on this synchronous path).
+  let checkError = null;
+  const created = transaction(() => {
+    const approvedCount = db
+      .prepare("SELECT COUNT(*) AS c FROM applications WHERE opportunityId = ? AND status = 'approved'")
+      .get(opportunity.id).c;
+    if (approvedCount >= opportunity.capacity) {
+      checkError = { status: 400, error: "This opportunity is already at capacity" };
+      return null;
+    }
+
+    const existing = db
+      .prepare("SELECT id FROM applications WHERE opportunityId = ? AND volunteerId = ?")
+      .get(opportunity.id, req.user.id);
+    if (existing) {
+      checkError = { status: 409, error: "You have already applied to this opportunity" };
+      return null;
+    }
+
+    const id = uuid();
+    db.prepare(
+      "INSERT INTO applications (id, opportunityId, volunteerId, message, status) VALUES (?, ?, ?, ?, 'pending')"
+    ).run(id, opportunity.id, req.user.id, req.body.message || null);
+
+    return db.prepare("SELECT * FROM applications WHERE id = ?").get(id);
+  });
+
+  if (checkError) {
+    return res.status(checkError.status).json({ error: checkError.error });
   }
-
-  const existing = db
-    .prepare("SELECT id FROM applications WHERE opportunityId = ? AND volunteerId = ?")
-    .get(opportunity.id, req.user.id);
-  if (existing) {
-    return res.status(409).json({ error: "You have already applied to this opportunity" });
-  }
-
-  const id = uuid();
-  db.prepare(
-    "INSERT INTO applications (id, opportunityId, volunteerId, message, status) VALUES (?, ?, ?, ?, 'pending')"
-  ).run(id, opportunity.id, req.user.id, req.body.message || null);
-
-  const created = db.prepare("SELECT * FROM applications WHERE id = ?").get(id);
   res.status(201).json(created);
 });
 

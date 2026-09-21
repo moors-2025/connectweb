@@ -1,5 +1,5 @@
 const express = require("express");
-const { db } = require("../db");
+const { db, transaction } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { validate, applicationPatchSchema } = require("../validation");
 
@@ -19,34 +19,50 @@ router.patch("/:id", requireAuth, requireRole("coordinator"), validate(applicati
     return res.status(403).json({ error: "You can only review applications for opportunities you created" });
   }
 
-  if (status === "approved") {
-    const approvedCount = db
-      .prepare("SELECT COUNT(*) AS c FROM applications WHERE opportunityId = ? AND status = 'approved'")
-      .get(opportunity.id).c;
-    if (approvedCount >= opportunity.capacity) {
-      return res.status(400).json({ error: "This opportunity is already at capacity" });
+  // Capacity check + status update run inside one transaction (see db.js's
+  // transaction() for why this is defense-in-depth rather than a fix for a
+  // live bug on this synchronous path).
+  let capacityError = null;
+  const updated = transaction(() => {
+    if (status === "approved") {
+      const approvedCount = db
+        .prepare("SELECT COUNT(*) AS c FROM applications WHERE opportunityId = ? AND status = 'approved'")
+        .get(opportunity.id).c;
+      if (approvedCount >= opportunity.capacity) {
+        capacityError = "This opportunity is already at capacity";
+        return null;
+      }
+
+      // BR4 enforcement: a briefing-required opportunity cannot be approved
+      // until the briefing is explicitly confirmed — this is a hard rule, not
+      // just a displayed flag (see Section 4.6, Limitations — now resolved).
+      const alreadyConfirmed = !!application.briefingConfirmed;
+      if (opportunity.requiresBriefing && !alreadyConfirmed && briefingConfirmed !== true) {
+        capacityError = "BRIEFING_REQUIRED";
+        return null;
+      }
     }
 
-    // BR4 enforcement: a briefing-required opportunity cannot be approved
-    // until the briefing is explicitly confirmed — this is a hard rule, not
-    // just a displayed flag (see Section 4.6, Limitations — now resolved).
-    const alreadyConfirmed = !!application.briefingConfirmed;
-    if (opportunity.requiresBriefing && !alreadyConfirmed && briefingConfirmed !== true) {
-      return res.status(400).json({
-        error: "This opportunity requires a confirmed briefing before approval. Include briefingConfirmed: true once the volunteer has attended the briefing.",
-      });
+    if (briefingConfirmed === true) {
+      db.prepare("UPDATE applications SET briefingConfirmed = 1 WHERE id = ?").run(req.params.id);
     }
+
+    db.prepare(
+      "UPDATE applications SET status = ?, reviewedBy = ?, reviewedAt = datetime('now') WHERE id = ?"
+    ).run(status, req.user.id, req.params.id);
+
+    return db.prepare("SELECT * FROM applications WHERE id = ?").get(req.params.id);
+  });
+
+  if (capacityError === "BRIEFING_REQUIRED") {
+    return res.status(400).json({
+      error: "This opportunity requires a confirmed briefing before approval. Include briefingConfirmed: true once the volunteer has attended the briefing.",
+    });
+  }
+  if (capacityError) {
+    return res.status(400).json({ error: capacityError });
   }
 
-  if (briefingConfirmed === true) {
-    db.prepare("UPDATE applications SET briefingConfirmed = 1 WHERE id = ?").run(req.params.id);
-  }
-
-  db.prepare(
-    "UPDATE applications SET status = ?, reviewedBy = ?, reviewedAt = datetime('now') WHERE id = ?"
-  ).run(status, req.user.id, req.params.id);
-
-  const updated = db.prepare("SELECT * FROM applications WHERE id = ?").get(req.params.id);
   res.json({ ...updated, briefingConfirmed: !!updated.briefingConfirmed });
 });
 

@@ -1,4 +1,5 @@
 const express = require("express");
+const { Prisma } = require("@prisma/client");
 const { prisma } = require("../prisma-client");
 const { requireAuth, requireRole, optionalAuth } = require("../middleware/auth");
 const {
@@ -9,6 +10,7 @@ const {
 } = require("../validation");
 
 const router = express.Router();
+const MAX_RETRIES = 3;
 
 async function withApprovedCount(o) {
   const approvedCount = await prisma.application.count({
@@ -87,34 +89,66 @@ router.patch("/:id", requireAuth, requireRole("coordinator"), validate(opportuni
   }
 });
 
+// Same check-then-write race as the approval route above (routes-prisma/applications.js)
+// exists here too — capacity/duplicate checks and the insert are wrapped in one
+// Serializable transaction for the same reason and with the same retry-on-conflict
+// handling; see that file's comment for the full explanation.
 router.post("/:id/apply", requireAuth, requireRole("volunteer"), validate(applySchema), async (req, res, next) => {
-  try {
-    const opportunity = await prisma.opportunity.findUnique({ where: { id: req.params.id } });
-    if (!opportunity) return res.status(404).json({ error: "Opportunity not found" });
-    if (opportunity.status !== "open") {
-      return res.status(400).json({ error: "This opportunity is not open for applications" });
-    }
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const created = await prisma.$transaction(
+        async (tx) => {
+          const opportunity = await tx.opportunity.findUnique({ where: { id: req.params.id } });
+          if (!opportunity) {
+            const err = new Error("Opportunity not found");
+            err.httpStatus = 404;
+            throw err;
+          }
+          if (opportunity.status !== "open") {
+            const err = new Error("This opportunity is not open for applications");
+            err.httpStatus = 400;
+            throw err;
+          }
 
-    const approvedCount = await prisma.application.count({
-      where: { opportunityId: opportunity.id, status: "approved" },
-    });
-    if (approvedCount >= opportunity.capacity) {
-      return res.status(400).json({ error: "This opportunity is already at capacity" });
-    }
+          const approvedCount = await tx.application.count({
+            where: { opportunityId: opportunity.id, status: "approved" },
+          });
+          if (approvedCount >= opportunity.capacity) {
+            const err = new Error("This opportunity is already at capacity");
+            err.httpStatus = 400;
+            throw err;
+          }
 
-    const existing = await prisma.application.findUnique({
-      where: { opportunityId_volunteerId: { opportunityId: opportunity.id, volunteerId: req.user.id } },
-    });
-    if (existing) {
-      return res.status(409).json({ error: "You have already applied to this opportunity" });
-    }
+          const existing = await tx.application.findUnique({
+            where: { opportunityId_volunteerId: { opportunityId: opportunity.id, volunteerId: req.user.id } },
+          });
+          if (existing) {
+            const err = new Error("You have already applied to this opportunity");
+            err.httpStatus = 409;
+            throw err;
+          }
 
-    const created = await prisma.application.create({
-      data: { opportunityId: opportunity.id, volunteerId: req.user.id, message: req.body.message || null },
-    });
-    res.status(201).json(created);
-  } catch (err) {
-    next(err);
+          return tx.application.create({
+            data: { opportunityId: opportunity.id, volunteerId: req.user.id, message: req.body.message || null },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      );
+
+      return res.status(201).json(created);
+    } catch (err) {
+      if (err.httpStatus) {
+        return res.status(err.httpStatus).json({ error: err.message });
+      }
+      const isSerializationConflict = err.code === "P2034";
+      if (isSerializationConflict && attempt < MAX_RETRIES) {
+        continue;
+      }
+      if (isSerializationConflict) {
+        return res.status(409).json({ error: "This application couldn't be submitted due to a conflicting update — please retry." });
+      }
+      return next(err);
+    }
   }
 });
 
