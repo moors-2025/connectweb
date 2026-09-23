@@ -73,6 +73,21 @@ db.exec(`
     recordedAt TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(opportunityId, volunteerId)
   );
+
+  -- Audit trail of admin actions (Table 27's "Real-World Production Version"
+  -- item, built alongside admin user create/edit — see routes/admin.js).
+  -- actorId is not a foreign key with ON DELETE CASCADE: users are only ever
+  -- soft-deleted (the active flag), so the referenced row always still
+  -- exists, and a log entry must survive even if that were ever to change.
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id TEXT PRIMARY KEY,
+    actorId TEXT NOT NULL REFERENCES users(id),
+    action TEXT NOT NULL,
+    targetType TEXT NOT NULL,
+    targetId TEXT,
+    details TEXT,
+    createdAt TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // Migration guard: `CREATE TABLE IF NOT EXISTS` above only applies to a fresh

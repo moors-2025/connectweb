@@ -69,10 +69,17 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return request(`/admin/users${qs ? `?${qs}` : ""}`, { token });
   },
+  adminCreateUser: (payload, token) => request("/admin/users", { method: "POST", body: payload, token }),
+  adminUpdateUser: (id, payload, token) =>
+    request(`/admin/users/${id}`, { method: "PATCH", body: payload, token }),
   adminSetUserActive: (id, active, token) =>
     request(`/admin/users/${id}`, { method: "PATCH", body: { active }, token }),
   adminTransferOwnership: (id, newOwnerId, token) =>
     request(`/admin/users/${id}/transfer-ownership`, { method: "POST", body: { newOwnerId }, token }),
+  adminAuditLog: (params = {}, token) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/audit-log${qs ? `?${qs}` : ""}`, { token });
+  },
 };
 
 // CSV export needs the auth cookie sent along, so it can't just be a plain

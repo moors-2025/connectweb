@@ -390,6 +390,169 @@ test("ownership transfer rejects a volunteer or disabled account as the new owne
   assert.strictEqual(toDisabled.status, 400);
 });
 
+test("admin can create a user directly, of any role, without self-registration", async () => {
+  const admin = createAdmin("Admin Six", "admincreate@test.com");
+
+  const res = await request(app)
+    .post("/api/admin/users")
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ name: "New Coordinator", email: "createdcoord@test.com", password: "password123", role: "coordinator" });
+  assert.strictEqual(res.status, 201);
+  assert.strictEqual(res.body.role, "coordinator");
+  assert.strictEqual(res.body.active, true);
+  assert.strictEqual(res.body.ownedCount, 0);
+
+  // The created account must actually be able to log in with the given password.
+  const loginRes = await request(app)
+    .post("/api/auth/login")
+    .send({ email: "createdcoord@test.com", password: "password123" });
+  assert.strictEqual(loginRes.status, 200);
+
+  // Creating an admin directly is allowed (unlike self-registration, which
+  // only accepts volunteer/coordinator) and is what the audit trail exists
+  // to make visible.
+  const adminRes = await request(app)
+    .post("/api/admin/users")
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ name: "New Admin", email: "creatednewadmin@test.com", password: "password123", role: "admin" });
+  assert.strictEqual(adminRes.status, 201);
+  assert.strictEqual(adminRes.body.role, "admin");
+});
+
+test("admin cannot create a user with a duplicate email; a non-admin cannot create users at all", async () => {
+  const admin = createAdmin("Admin Seven", "admincreatedupe@test.com");
+  await registerAndLogin("volunteer", "dupecreate@test.com");
+
+  const dupeRes = await request(app)
+    .post("/api/admin/users")
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ name: "Dupe", email: "dupecreate@test.com", password: "password123", role: "volunteer" });
+  assert.strictEqual(dupeRes.status, 409);
+
+  const volToken = await registerAndLogin("volunteer", "notadmincreate@test.com");
+  const forbiddenRes = await request(app)
+    .post("/api/admin/users")
+    .set("Authorization", `Bearer ${volToken}`)
+    .send({ name: "X", email: "shouldnotexist@test.com", password: "password123", role: "volunteer" });
+  assert.strictEqual(forbiddenRes.status, 403);
+});
+
+test("admin can edit a user's name, email, and role in one PATCH", async () => {
+  const admin = createAdmin("Admin Eight", "adminedit@test.com");
+  const volToken = await registerAndLogin("volunteer", "editme@test.com");
+  const volId = jwt.verify(volToken, JWT_SECRET).id;
+
+  const res = await request(app)
+    .patch(`/api/admin/users/${volId}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ name: "Edited Name", email: "edited@test.com", role: "coordinator" });
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.name, "Edited Name");
+  assert.strictEqual(res.body.email, "edited@test.com");
+  assert.strictEqual(res.body.role, "coordinator");
+
+  // The new email must now be the one that logs in.
+  const loginRes = await request(app)
+    .post("/api/auth/login")
+    .send({ email: "edited@test.com", password: "password123" });
+  assert.strictEqual(loginRes.status, 200);
+});
+
+test("an empty PATCH body is rejected; editing to a taken email is rejected", async () => {
+  const admin = createAdmin("Admin Nine", "adminemptypatch@test.com");
+  const volToken = await registerAndLogin("volunteer", "emptypatch@test.com");
+  const volId = jwt.verify(volToken, JWT_SECRET).id;
+  await registerAndLogin("volunteer", "alreadytaken@test.com");
+
+  const emptyRes = await request(app)
+    .patch(`/api/admin/users/${volId}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({});
+  assert.strictEqual(emptyRes.status, 400);
+
+  const takenRes = await request(app)
+    .patch(`/api/admin/users/${volId}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ email: "alreadytaken@test.com" });
+  assert.strictEqual(takenRes.status, 409);
+});
+
+test("changing a coordinator's role away from coordinator is blocked while they still own opportunities", async () => {
+  const admin = createAdmin("Admin Ten", "adminroleblock@test.com");
+  const coordToken = await registerAndLogin("coordinator", "roleblockcoord@test.com");
+  const coordId = jwt.verify(coordToken, JWT_SECRET).id;
+
+  const oppRes = await request(app)
+    .post("/api/opportunities")
+    .set("Authorization", `Bearer ${coordToken}`)
+    .send({
+      title: "Role Block Test", description: "d", category: "c",
+      commitmentType: "ad_hoc", location: "l",
+      startDatetime: "2026-10-01T10:00:00", endDatetime: "2026-10-01T12:00:00",
+      capacity: 1,
+    });
+  assert.strictEqual(oppRes.status, 201);
+
+  const blockedRes = await request(app)
+    .patch(`/api/admin/users/${coordId}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ role: "volunteer" });
+  assert.strictEqual(blockedRes.status, 400);
+  assert.strictEqual(blockedRes.body.ownedCount, 1);
+});
+
+test("admin cannot change their own role away from admin", async () => {
+  const admin = createAdmin("Admin Eleven", "adminselfrole@test.com");
+  const res = await request(app)
+    .patch(`/api/admin/users/${admin.id}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ role: "coordinator" });
+  assert.strictEqual(res.status, 400);
+});
+
+test("admin actions are recorded in the audit log, which is itself admin-only", async () => {
+  const admin = createAdmin("Admin Twelve", "adminaudit@test.com");
+  const volToken = await registerAndLogin("volunteer", "auditedvol@test.com");
+  const volId = jwt.verify(volToken, JWT_SECRET).id;
+
+  await request(app)
+    .patch(`/api/admin/users/${volId}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ active: false });
+  await request(app)
+    .patch(`/api/admin/users/${volId}`)
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ active: true });
+  await request(app)
+    .post("/api/admin/users")
+    .set("Authorization", `Bearer ${admin.token}`)
+    .send({ name: "Audited Create", email: "auditedcreate@test.com", password: "password123", role: "volunteer" });
+
+  // The unfiltered log is global (every admin's actions, oldest-agnostic), so
+  // scope by actorId to check this admin's own actions specifically — the
+  // same way a real investigation ("what did this admin do?") would.
+  const logRes = await request(app)
+    .get(`/api/admin/audit-log?actorId=${admin.id}`)
+    .set("Authorization", `Bearer ${admin.token}`);
+  assert.strictEqual(logRes.status, 200);
+  const actions = logRes.body.map((r) => r.action);
+  assert.ok(actions.includes("user.disable"));
+  assert.ok(actions.includes("user.enable"));
+  assert.ok(actions.includes("user.create"));
+  // Every row must identify who acted, not just what happened.
+  assert.ok(logRes.body.every((r) => r.actorEmail === "adminaudit@test.com"));
+
+  const filteredRes = await request(app)
+    .get(`/api/admin/audit-log?action=user.create&actorId=${admin.id}`)
+    .set("Authorization", `Bearer ${admin.token}`);
+  assert.ok(filteredRes.body.every((r) => r.action === "user.create"));
+
+  const volAttempt = await request(app)
+    .get("/api/admin/audit-log")
+    .set("Authorization", `Bearer ${volToken}`);
+  assert.strictEqual(volAttempt.status, 403);
+});
+
 test("concurrent approvals for the same capacity-1 opportunity never both succeed", async () => {
   const coordToken = await registerAndLogin("coordinator", "raceoord@test.com");
   const vol1Token = await registerAndLogin("volunteer", "racevol1@test.com");

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { api } from "../lib/api";
+import { downloadHoursCertificate } from "../lib/certificate";
 import StatusBadge from "../components/StatusBadge";
 import Skeleton from "../components/Skeleton";
 
@@ -104,7 +105,24 @@ export default function VolunteerDashboard() {
           </section>
 
           <section className="mt-10">
-            <h2 className="font-display text-xl font-semibold">Attendance & hours</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-xl font-semibold">Attendance & hours</h2>
+              {hours.totalHours > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadHoursCertificate({
+                      name: user.name,
+                      totalHours: hours.totalHours,
+                      records: hours.records,
+                    })
+                  }
+                  className="rounded border border-forest px-3 py-1.5 text-sm font-medium text-forest-dark hover:bg-forest/10"
+                >
+                  Download certificate
+                </button>
+              )}
+            </div>
             {hours.records.length === 0 ? (
               <p className="mt-2 text-sm text-ink/60">No attendance recorded yet.</p>
             ) : (

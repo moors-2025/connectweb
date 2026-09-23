@@ -46,10 +46,29 @@ const attendanceSchema = z.object({
   hoursCompleted: z.coerce.number().min(0).max(24).optional(),
 });
 
-// Admin user-management (server/src/routes/admin.js): enable/disable a user account.
-const adminUserPatchSchema = z.object({
-  active: z.boolean(),
+// Admin user-management (server/src/routes/admin.js): create a user directly,
+// bypassing self-registration. Unlike registerSchema, role is required (an
+// admin must choose deliberately) and includes "admin" itself.
+const adminUserCreateSchema = z.object({
+  name: z.string().trim().min(1, "name is required").max(200),
+  email: z.string().trim().email("valid email is required"),
+  password: z.string().min(8, "password must be at least 8 characters").max(200),
+  role: z.enum(["volunteer", "coordinator", "admin"]),
 });
+
+// Admin user-management: edit an existing user, or enable/disable their account.
+// Every field is optional (a PATCH may touch just one), but at least one must
+// be present — an empty body is rejected rather than silently accepted as a
+// no-op, since that almost always means the caller made a mistake.
+const adminUserUpdateSchema = z
+  .object({
+    active: z.boolean().optional(),
+    name: z.string().trim().min(1).max(200).optional(),
+    email: z.string().trim().email().optional(),
+    role: z.enum(["volunteer", "coordinator", "admin"]).optional(),
+    password: z.string().min(8, "password must be at least 8 characters").max(200).optional(),
+  })
+  .refine((obj) => Object.keys(obj).length > 0, { message: "At least one field must be provided" });
 
 // Admin user-management: reassign a user's created opportunities to another
 // active coordinator or admin, ahead of disabling them.
@@ -89,6 +108,7 @@ module.exports = {
   applicationPatchSchema,
   attendanceSchema,
   profileUpdateSchema,
-  adminUserPatchSchema,
+  adminUserCreateSchema,
+  adminUserUpdateSchema,
   adminTransferOwnershipSchema,
 };
