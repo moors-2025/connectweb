@@ -1,0 +1,664 @@
+openapi: 3.0.3
+info:
+  title: PERTAPIS Volunteer Connect API
+  description: >
+    REST API for the PERTAPIS Volunteer Connect prototype: volunteers discover
+    and apply to opportunities; coordinators approve applications, record
+    attendance, and track hours; an admin role manages users and reviews an
+    audit trail of admin actions. Generated from the implemented routes and
+    Zod validation schemas (server/src/routes/, server/src/validation.js) to
+    match Appendix B of the project report.
+  version: "1.0.0"
+servers:
+  - url: https://pertapis-api.onrender.com/api
+    description: Live deployment
+  - url: http://localhost:4000/api
+    description: Local development
+tags:
+  - name: Auth
+  - name: Opportunities
+  - name: Applications
+  - name: Volunteers
+  - name: Attendance
+  - name: Reports
+  - name: Admin
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: token
+      description: >
+        httpOnly JWT cookie set on login/register. An Authorization: Bearer
+        header is also accepted for non-browser clients and tests.
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { type: string, enum: [volunteer, coordinator, admin] }
+    Opportunity:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        category: { type: string }
+        commitmentType: { type: string, enum: [ad_hoc, recurring, mentoring] }
+        location: { type: string }
+        startDatetime: { type: string }
+        endDatetime: { type: string }
+        capacity: { type: integer }
+        requiresBriefing: { type: boolean }
+        status: { type: string, enum: [open, closed, cancelled] }
+        createdBy: { type: string }
+    Application:
+      type: object
+      properties:
+        id: { type: string }
+        opportunityId: { type: string }
+        volunteerId: { type: string }
+        status: { type: string, enum: [pending, approved, declined] }
+        message: { type: string, nullable: true }
+        reviewedBy: { type: string, nullable: true }
+        reviewedAt: { type: string, nullable: true }
+    Attendance:
+      type: object
+      properties:
+        opportunityId: { type: string }
+        volunteerId: { type: string }
+        attended: { type: boolean }
+        hoursCompleted: { type: number }
+        recordedBy: { type: string }
+        recordedAt: { type: string }
+    AuditLogEntry:
+      type: object
+      properties:
+        id: { type: string }
+        actorId: { type: string }
+        action: { type: string }
+        targetType: { type: string }
+        targetId: { type: string }
+        details: { type: string, nullable: true }
+        createdAt: { type: string }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Authenticated, but wrong role or not the resource owner
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationError:
+      description: Request body failed validation
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+security:
+  - cookieAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Create account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, maxLength: 200 }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8, maxLength: 200 }
+                role: { type: string, enum: [volunteer, coordinator] }
+      responses:
+        "201":
+          description: Account created; sets the auth cookie
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Authenticate, issue JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Authenticated; sets the auth cookie
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Clear the auth cookie
+      responses:
+        "200": { description: Logged out }
+
+  /opportunities:
+    get:
+      tags: [Opportunities]
+      summary: Browse/filter opportunities
+      security: []
+      parameters:
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: commitmentType
+          schema: { type: string, enum: [ad_hoc, recurring, mentoring] }
+        - in: query
+          name: location
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of opportunities
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Opportunity" }
+    post:
+      tags: [Opportunities]
+      summary: Create opportunity (coordinator)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, description, category, commitmentType, location, startDatetime, endDatetime, capacity]
+              properties:
+                title: { type: string, maxLength: 300 }
+                description: { type: string, maxLength: 4000 }
+                category: { type: string, maxLength: 200 }
+                commitmentType: { type: string, enum: [ad_hoc, recurring, mentoring] }
+                location: { type: string, maxLength: 300 }
+                startDatetime: { type: string }
+                endDatetime: { type: string }
+                capacity: { type: integer, minimum: 1 }
+                requiresBriefing: { type: boolean }
+      responses:
+        "201":
+          description: Opportunity created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Opportunity" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /opportunities/{id}:
+    get:
+      tags: [Opportunities]
+      summary: View details
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Opportunity details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Opportunity" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Opportunities]
+      summary: Edit opportunity (coordinator)
+      description: >
+        Only the opportunity's own creator may edit it. This is a plain
+        last-write-wins update: there is no version/etag check, so two
+        coordinators editing the same opportunity concurrently will silently
+        overwrite each other (see report Section 2.6, Limitations).
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Any subset of the create fields, plus status.
+              properties:
+                title: { type: string }
+                description: { type: string }
+                category: { type: string }
+                commitmentType: { type: string, enum: [ad_hoc, recurring, mentoring] }
+                location: { type: string }
+                startDatetime: { type: string }
+                endDatetime: { type: string }
+                capacity: { type: integer }
+                requiresBriefing: { type: boolean }
+                status: { type: string, enum: [open, closed, cancelled] }
+      responses:
+        "200":
+          description: Updated opportunity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Opportunity" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /opportunities/{id}/apply:
+    post:
+      tags: [Applications]
+      summary: Submit application
+      description: FR-04/FR-05 - rejected as a conflict if already applied, or bad-request if full/closed.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message: { type: string, maxLength: 2000, nullable: true }
+      responses:
+        "201":
+          description: Application submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: Already applied to this opportunity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /opportunities/{id}/applications:
+    get:
+      tags: [Applications]
+      summary: Review applications (coordinator)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Applications for this opportunity
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Application" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /applications/{id}:
+    patch:
+      tags: [Applications]
+      summary: Approve/decline (coordinator)
+      description: >
+        BR4: approving a briefing-required opportunity needs
+        briefingConfirmed=true on this request or already on the application.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [approved, declined] }
+                briefingConfirmed: { type: boolean }
+      responses:
+        "200":
+          description: Updated application
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: Would exceed opportunity capacity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /volunteers/me/profile:
+    get:
+      tags: [Volunteers]
+      summary: View own volunteer profile
+      responses:
+        "200": { description: Volunteer profile }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      tags: [Volunteers]
+      summary: Edit own volunteer profile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                skills: { type: string, maxLength: 1000, nullable: true }
+                interests: { type: string, maxLength: 1000, nullable: true }
+                availability: { type: string, maxLength: 1000, nullable: true }
+                preferredLocations: { type: string, maxLength: 1000, nullable: true }
+                commitmentPreference: { type: string, enum: [ad_hoc, recurring, mentoring], nullable: true }
+      responses:
+        "200": { description: Updated profile }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /volunteers/me/schedule:
+    get:
+      tags: [Volunteers]
+      summary: Volunteer's confirmed schedule
+      responses:
+        "200": { description: Approved upcoming opportunities }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /volunteers/me/applications:
+    get:
+      tags: [Volunteers]
+      summary: View own submitted applications
+      responses:
+        "200":
+          description: Own applications
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Application" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /volunteers/me/hours:
+    get:
+      tags: [Volunteers]
+      summary: Volunteer's accumulated hours
+      responses:
+        "200": { description: Total and per-opportunity hours }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /attendance:
+    post:
+      tags: [Attendance]
+      summary: Record attendance + hours
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [opportunityId, volunteerId]
+              properties:
+                opportunityId: { type: string }
+                volunteerId: { type: string }
+                attended: { type: boolean }
+                hoursCompleted: { type: number, minimum: 0, maximum: 24 }
+      responses:
+        "200":
+          description: Attendance recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Attendance" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /reports/volunteer-hours:
+    get:
+      tags: [Reports]
+      summary: Per-volunteer hours report (coordinator)
+      responses:
+        "200": { description: Hours by volunteer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /reports/volunteer-hours/export.csv:
+    get:
+      tags: [Reports]
+      summary: CSV export of the hours report (coordinator)
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /reports/opportunity-breakdown:
+    get:
+      tags: [Reports]
+      summary: Per-opportunity participation summary (coordinator)
+      responses:
+        "200": { description: Breakdown by opportunity }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /reports/summary:
+    get:
+      tags: [Reports]
+      summary: Org-wide totals - opportunities, active volunteers, hours (coordinator)
+      responses:
+        "200": { description: Org-wide summary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/overview:
+    get:
+      tags: [Admin]
+      summary: System-wide counts - users, opportunities, applications, hours (admin)
+      responses:
+        "200": { description: Overview totals }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/backup:
+    post:
+      tags: [Admin]
+      summary: Trigger a timestamped database backup (admin)
+      responses:
+        "200": { description: Backup created; logged to audit_log }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/reindex:
+    post:
+      tags: [Admin]
+      summary: Rebuild database indexes (admin)
+      responses:
+        "200": { description: Indexes rebuilt; logged to audit_log }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: List/filter users (admin)
+      parameters:
+        - in: query
+          name: role
+          schema: { type: string, enum: [volunteer, coordinator, admin] }
+        - in: query
+          name: active
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Admin]
+      summary: Create a user directly, with role and password (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, role]
+              properties:
+                name: { type: string, maxLength: 200 }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8, maxLength: 200 }
+                role: { type: string, enum: [volunteer, coordinator, admin] }
+      responses:
+        "201":
+          description: User created; logged to audit_log
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/users/{id}:
+    patch:
+      tags: [Admin]
+      summary: Edit a user's name/email/role/password, or disable/enable (admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: At least one field must be present.
+              properties:
+                active: { type: boolean }
+                name: { type: string, maxLength: 200 }
+                email: { type: string, format: email }
+                role: { type: string, enum: [volunteer, coordinator, admin] }
+                password: { type: string, minLength: 8, maxLength: 200 }
+      responses:
+        "200":
+          description: Updated user; logged to audit_log
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/users/{id}/transfer-ownership:
+    post:
+      tags: [Admin]
+      summary: Reassign a user's owned opportunities before role/disable changes (admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newOwnerId]
+              properties:
+                newOwnerId: { type: string }
+      responses:
+        "200": { description: Ownership transferred; logged to audit_log }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/audit-log:
+    get:
+      tags: [Admin]
+      summary: Query the audit trail of admin actions (admin)
+      parameters:
+        - in: query
+          name: action
+          schema: { type: string }
+        - in: query
+          name: actorId
+          schema: { type: string }
+      responses:
+        "200":
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuditLogEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
